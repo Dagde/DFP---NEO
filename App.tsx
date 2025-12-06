@@ -4966,6 +4966,9 @@ updates.forEach(update => {
                     oracleContextForModal={oracleContextForModal}
                     sctRequests={[...sctFlights, ...sctFtds]}
                     sctEvents={sctEvents}
+                    publishedSchedules={publishedSchedules}
+                    nextDayBuildEvents={nextDayBuildEvents}
+                    activeView={activeView}
                 />
             )}
             

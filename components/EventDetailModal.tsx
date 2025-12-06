@@ -26,6 +26,10 @@ interface EventDetailModalProps {
   oracleAvailableInstructors?: string[];
   oracleAvailableTrainees?: string[];
   oracleNextSyllabusEvent?: SyllabusItemDetail | null;
+  // New props for deployment functionality
+  publishedSchedules?: Record<string, ScheduleEvent[]>;
+  nextDayBuildEvents?: ScheduleEvent[];
+  activeView?: string;
 }
 
 interface CrewMember {
@@ -49,8 +53,36 @@ const getEventTypeFromSyllabus = (syllabusId: string, syllabusDetails: SyllabusI
     return 'flight';
 };
 
+// Helper function to format deployment title
+const formatDeploymentTitle = (deployment: ScheduleEvent): string => {
+    const formatTime = (time: number): string => {
+        const hours = Math.floor(time);
+        const minutes = Math.round((time - hours) * 60);
+        return `${hours.toString().padStart(2, '0')}${minutes.toString().padStart(2, '0')}`;
+    };
+    
+    // Get start date and format it
+    const startDate = deployment.date || '';
+    const endDate = deployment.deploymentEndDate || startDate;
+    
+    // Format dates as DDMMMYY (e.g., 12May25)
+    const formatDate = (dateStr: string): string => {
+        if (!dateStr) return '';
+        const date = new Date(dateStr);
+        const day = date.getDate().toString().padStart(2, '0');
+        const month = date.toLocaleDateString('en-US', { month: 'short' });
+        const year = date.getFullYear().toString().slice(-2);
+        return `${day}${month}${year}`;
+    };
+    
+    const startTime = formatTime(deployment.startTime || 0);
+    const endTime = formatTime((deployment.startTime || 0) + (deployment.duration || 0));
+    
+    return `${startTime}${formatDate(startDate)}–${endTime}${formatDate(endDate)}`;
+};
 
-export const EventDetailModal: React.FC<EventDetailModalProps> = ({ event, onClose, onSave, onDeleteRequest, isEditingDefault = false, instructors, trainees, syllabus, syllabusDetails, highlightedField, school, traineesData, courseColors, onNavigateToHateSheet, onNavigateToSyllabus, onOpenPt051, onOpenAuth, onOpenPostFlight, isConflict, onNeoClick, oracleAvailableInstructors, oracleAvailableTrainees, oracleNextSyllabusEvent }) => {
+
+export const EventDetailModal: React.FC<EventDetailModalProps> = ({ event, onClose, onSave, onDeleteRequest, isEditingDefault = false, instructors, trainees, syllabus, syllabusDetails, highlightedField, school, traineesData, courseColors, onNavigateToHateSheet, onNavigateToSyllabus, onOpenPt051, onOpenAuth, onOpenPostFlight, isConflict, onNeoClick, oracleAvailableInstructors, oracleAvailableTrainees, oracleNextSyllabusEvent, publishedSchedules = {}, nextDayBuildEvents = [], activeView = '' }) => {
     const [isEditing, setIsEditing] = useState(isEditingDefault);
     const [localHighlight, setLocalHighlight] = useState(highlightedField);
     const [showCancelConfirm, setShowCancelConfirm] = useState(false);
@@ -74,6 +106,9 @@ export const EventDetailModal: React.FC<EventDetailModalProps> = ({ event, onClo
     const [origin, setOrigin] = useState(event.origin || school);
     const [destination, setDestination] = useState(event.destination || school);
     const [formationType, setFormationType] = useState(event.formationType || '');
+    
+    // Deployment Selection State
+    const [selectedDeploymentId, setSelectedDeploymentId] = useState<string>('');
     
     // Group Selection State
     const [activeGroupInput, setActiveGroupInput] = useState<number | null>(null);
@@ -124,6 +159,38 @@ export const EventDetailModal: React.FC<EventDetailModalProps> = ({ event, onClo
         setDestination(event.destination || school);
         setFormationType(event.formationType || formationTypes[0]);
     }, [event, isEditingDefault, highlightedField, school]);
+    
+    // Helper function to get current deployments
+    const getCurrentDeployments = (): ScheduleEvent[] => {
+        const deployments: ScheduleEvent[] = [];
+        
+        // Get deployments from published schedules for Program Schedule view
+        if (['Program Schedule', 'DailyFlyingProgram', 'InstructorSchedule', 'TraineeSchedule'].includes(activeView)) {
+            Object.values(publishedSchedules).forEach(scheduleEvents => {
+                const todayDeployments = scheduleEvents.filter(e => e.type === 'deployment');
+                deployments.push(...todayDeployments);
+            });
+        } 
+        // Get deployments from next day build for Next Day Build view
+        else if (['NextDayBuild', 'Priorities', 'ProgramData', 'NextDayInstructorSchedule', 'NextDayTraineeSchedule'].includes(activeView)) {
+            const buildDeployments = nextDayBuildEvents.filter(e => e.type === 'deployment');
+            deployments.push(...buildDeployments);
+        }
+        
+        // Filter deployments to show only those that could accommodate this event type
+        const compatibleDeployments = deployments.filter(deployment => {
+            if (eventType === 'flight') {
+                return deployment.resourceId?.startsWith('PC-21') || deployment.resourceId?.startsWith('Deployed');
+            } else if (eventType === 'ftd') {
+                return deployment.resourceId?.startsWith('FTD');
+            } else if (eventType === 'cpt') {
+                return deployment.resourceId?.startsWith('CPT');
+            }
+            return false;
+        });
+        
+        return compatibleDeployments;
+    };
     
     useEffect(() => {
         if (locationType === 'Local') {
@@ -228,6 +295,18 @@ export const EventDetailModal: React.FC<EventDetailModalProps> = ({ event, onClo
         const eventsToSave: ScheduleEvent[] = crew.map((c, index) => {
             let eventColor = event.color;
             // ... (existing color logic)
+            
+            // Handle deployment assignment
+            let resourceId = event.resourceId;
+            if (selectedDeploymentId) {
+                // Find the selected deployment and assign its resourceId
+                const selectedDeployment = getCurrentDeployments().find(d => d.id === selectedDeploymentId);
+                if (selectedDeployment) {
+                    resourceId = selectedDeployment.resourceId;
+                    console.log(`Assigning event to deployment: ${selectedDeployment.id} (${resourceId})`);
+                }
+            }
+            
             return {
                 ...event,
                 type: eventType,
@@ -245,6 +324,7 @@ export const EventDetailModal: React.FC<EventDetailModalProps> = ({ event, onClo
                 locationType,
                 origin: locationType === 'Local' ? school : origin,
                 destination: locationType === 'Local' ? school : destination,
+                resourceId, // Updated with deployment assignment if selected
                 formationType: flightNumber === 'SCT FORM' ? formationType : undefined,
                 formationPosition: flightNumber === 'SCT FORM' ? index + 1 : undefined,
             };
@@ -352,6 +432,43 @@ export const EventDetailModal: React.FC<EventDetailModalProps> = ({ event, onClo
                                     </div>
                                     {/* ... (other editing fields) ... */}
                                     <div className="space-y-4">{crew.map(renderCrewFields)}</div>
+                                    
+                                    {/* Add to Deployment Section */}
+                                    {(eventType === 'flight' || eventType === 'ftd' || eventType === 'cpt') && (
+                                        <div className="border-t border-gray-600 pt-6">
+                                            <h3 className="text-lg font-semibold text-white mb-4">Add to Deployment</h3>
+                                            <div className="space-y-3">
+                                                {getCurrentDeployments().length > 0 ? (
+                                                    getCurrentDeployments().map(deployment => (
+                                                        <label key={deployment.id} className="flex items-center space-x-3 cursor-pointer hover:bg-gray-700 p-2 rounded">
+                                                            <input
+                                                                type="checkbox"
+                                                                checked={selectedDeploymentId === deployment.id}
+                                                                onChange={(e) => {
+                                                                    if (e.target.checked) {
+                                                                        setSelectedDeploymentId(deployment.id);
+                                                                    } else {
+                                                                        setSelectedDeploymentId('');
+                                                                    }
+                                                                }}
+                                                                className="h-4 w-4 text-sky-600 bg-gray-700 border-gray-600 rounded focus:ring-sky-500"
+                                                            />
+                                                            <span className="text-sm text-gray-300">
+                                                                {formatDeploymentTitle(deployment)}
+                                                            </span>
+                                                            <span className="text-xs text-gray-500 ml-2">
+                                                                ({deployment.resourceId})
+                                                            </span>
+                                                        </label>
+                                                    ))
+                                                ) : (
+                                                    <p className="text-sm text-gray-500 italic">
+                                                        No deployments available for this event type
+                                                    </p>
+                                                )}
+                                            </div>
+                                        </div>
+                                    )}
                                 </div>
                             ) : (
                                 // ... (existing view mode)
