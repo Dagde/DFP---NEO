@@ -48,6 +48,8 @@ interface SettingsViewProps {
     onUpdateSctEvents: (events: string[]) => void;
     preferredDutyPeriod: number;
     onUpdatePreferredDutyPeriod: (value: number) => void;
+    timezoneOffset: number;
+    onUpdateTimezoneOffset: (offset: number) => void;
     maxCrewDutyPeriod: number;
     onUpdateMaxCrewDutyPeriod: (value: number) => void;
     flightTurnaround: number;
@@ -110,7 +112,9 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
     currentUserPermission,
     activeSection = 'scoring-matrix',
     maxDispatchPerHour,
-    onUpdateMaxDispatchPerHour
+    onUpdateMaxDispatchPerHour,
+    timezoneOffset,
+    onUpdateTimezoneOffset
 }) => {
     // --- STATE ---
     
@@ -950,6 +954,63 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
     return (
         <>
             <div className="space-y-6">
+                {/* Timezone Settings Window */}
+                {activeSection === 'timezone' && (
+                <div className="bg-gray-800 rounded-lg shadow-lg border border-gray-700 p-6 w-96">
+                    <div className="p-4 flex justify-between items-center border-b border-gray-700">
+                        <h2 className="text-lg font-semibold text-gray-200">Timezone Settings</h2>
+                    </div>
+                    <div className="p-4 space-y-4">
+                        <div>
+                            <label className="block text-sm font-medium text-gray-300 mb-2">
+                                Timezone Offset (UTC)
+                            </label>
+                            <select 
+                                value={timezoneOffset} 
+                                onChange={(e) => onUpdateTimezoneOffset(parseFloat(e.target.value))}
+                                className="w-full bg-gray-700 border border-gray-600 rounded-md py-2 px-3 text-white focus:outline-none focus:ring-2 focus:ring-sky-500"
+                            >
+                                <option value="-12">UTC-12:00</option>
+                                <option value="-11">UTC-11:00</option>
+                                <option value="-10">UTC-10:00 (Hawaii)</option>
+                                <option value="-9">UTC-09:00 (Alaska)</option>
+                                <option value="-8">UTC-08:00 (Pacific)</option>
+                                <option value="-7">UTC-07:00 (Mountain)</option>
+                                <option value="-6">UTC-06:00 (Central)</option>
+                                <option value="-5">UTC-05:00 (Eastern)</option>
+                                <option value="-4">UTC-04:00</option>
+                                <option value="-3">UTC-03:00</option>
+                                <option value="-2">UTC-02:00</option>
+                                <option value="-1">UTC-01:00</option>
+                                <option value="0">UTC+00:00 (GMT/UTC)</option>
+                                <option value="1">UTC+01:00 (CET)</option>
+                                <option value="2">UTC+02:00</option>
+                                <option value="3">UTC+03:00</option>
+                                <option value="4">UTC+04:00</option>
+                                <option value="5">UTC+05:00</option>
+                                <option value="5.5">UTC+05:30 (India)</option>
+                                <option value="6">UTC+06:00</option>
+                                <option value="7">UTC+07:00</option>
+                                <option value="8">UTC+08:00 (Singapore/Perth)</option>
+                                <option value="9">UTC+09:00 (Japan/Korea)</option>
+                                <option value="9.5">UTC+09:30 (Adelaide)</option>
+                                <option value="10">UTC+10:00 (AEST Sydney/Brisbane)</option>
+                                <option value="10.5">UTC+10:30</option>
+                                <option value="11">UTC+11:00 (AEDT Sydney)</option>
+                                <option value="12">UTC+12:00 (New Zealand)</option>
+                                <option value="13">UTC+13:00 (NZDT)</option>
+                            </select>
+                            <p className="mt-2 text-xs text-gray-400">
+                                Current server time: {new Date().toUTCString()}
+                            </p>
+                            <p className="mt-1 text-xs text-gray-400">
+                                Your local time: {new Date(Date.now() + timezoneOffset * 60 * 60 * 1000).toUTCString()}
+                            </p>
+                        </div>
+                    </div>
+                </div>
+                )}
+
                 {/* Scoring Matrix Window */}
                 {activeSection === 'scoring-matrix' && (
                 <div className="bg-gray-800 rounded-lg shadow-lg border border-gray-700 p-6">

@@ -1455,9 +1455,27 @@ const App: React.FC = () => {
         return `${h.toString().padStart(2, '0')}${m.toString().padStart(2, '0')}`;
     };
 
+    // Timezone offset state (in hours, e.g., +11 for AEDT)
+    const [timezoneOffset, setTimezoneOffset] = useState<number>(() => {
+        const saved = localStorage.getItem('timezoneOffset');
+        return saved ? parseFloat(saved) : 0;
+    });
+
+    // Helper function to get local date string with timezone offset
+    const getLocalDateString = (date: Date = new Date()): string => {
+        // Apply timezone offset
+        const offsetMs = timezoneOffset * 60 * 60 * 1000;
+        const adjustedDate = new Date(date.getTime() + offsetMs);
+        
+        const year = adjustedDate.getUTCFullYear();
+        const month = String(adjustedDate.getUTCMonth() + 1).padStart(2, '0');
+        const day = String(adjustedDate.getUTCDate()).padStart(2, '0');
+        return `${year}-${month}-${day}`;
+    };
+
     const [activeView, setActiveView] = useState<string>('Program Schedule');
     const [previousView, setPreviousView] = useState<string>('Program Schedule');
-    const [date, setDate] = useState<string>(new Date().toISOString().split('T')[0]);
+    const [date, setDate] = useState<string>(() => getLocalDateString());
     const [events, setEvents] = useState<ScheduleEvent[]>(ESL_DATA.events);
     const [selectedEvent, setSelectedEvent] = useState<ScheduleEvent | null>(null);
     const [isEditingDefault, setIsEditingDefault] = useState(false);
@@ -1530,7 +1548,7 @@ const App: React.FC = () => {
     const [buildDfpDate, setBuildDfpDate] = useState<string>(() => {
         const tomorrow = new Date();
         tomorrow.setDate(tomorrow.getDate() + 1);
-        return tomorrow.toISOString().split('T')[0];
+        return getLocalDateString(tomorrow);
     });
     const [availableAircraftCount, setAvailableAircraftCount] = useState(15);
     const [flyingStartTime, setFlyingStartTime] = useState(8.0); // 08:00
@@ -1722,6 +1740,50 @@ const App: React.FC = () => {
         }
     }, [activeView, publishedSchedules, pt051Assessments]);
 
+    // Sync priority events when SCT requests change
+    useEffect(() => {
+        if (activeView === 'Priorities' || activeView === 'ProgramData') {
+            syncPriorityEventsWithSctAndRemedial();
+        }
+    }, [sctFlights, sctFtds, activeView]);
+
+    // Sync priority events when remedial requests change
+    useEffect(() => {
+        if (activeView === 'Priorities' || activeView === 'ProgramData') {
+            syncPriorityEventsWithSctAndRemedial();
+        }
+    }, [remedialRequests, activeView]);
+
+    // Save timezone offset to localStorage
+    useEffect(() => {
+        localStorage.setItem('timezoneOffset', timezoneOffset.toString());
+    }, [timezoneOffset]);
+
+    // Auto-update buildDfpDate to tomorrow's date on mount and daily
+    useEffect(() => {
+        const updateBuildDate = () => {
+            const tomorrow = new Date();
+            tomorrow.setDate(tomorrow.getDate() + 1);
+            const tomorrowStr = getLocalDateString(tomorrow);
+            
+            // Only update if the date has actually changed
+            if (buildDfpDate !== tomorrowStr) {
+                console.log('📅 Updating build DFP date from', buildDfpDate, 'to', tomorrowStr);
+                setBuildDfpDate(tomorrowStr);
+            }
+        };
+
+        // Update immediately on mount
+        updateBuildDate();
+
+        // Set up interval to check and update at midnight
+        const checkInterval = setInterval(() => {
+            updateBuildDate();
+        }, 60000); // Check every minute
+
+        return () => clearInterval(checkInterval);
+    }, [timezoneOffset]); // Re-run when timezone changes
+
     const eventsForDate = useMemo(() => {
         // This is used for LOGIC (like conflict checks), not rendering.
         return publishedSchedules[date] || [];
@@ -1819,7 +1881,7 @@ const App: React.FC = () => {
     }, [buildDfpDate, nextDayBuildEvents, publishedSchedules]);
 
     useEffect(() => {
-        const todayStr = new Date().toISOString().split('T')[0];
+        const todayStr = getLocalDateString();
         const initialEvents = events.filter(e => e.date === todayStr);
         if (Object.keys(baselineSchedules).length === 0 && initialEvents.length > 0) {
              setBaselineSchedules({ [todayStr]: JSON.parse(JSON.stringify(initialEvents)) });
@@ -2094,7 +2156,7 @@ const App: React.FC = () => {
     }, []);
 
     const navigateToView = (view: string) => {
-        const today = new Date().toISOString().split('T')[0];
+        const today = getLocalDateString();
         const isDashboard = view === 'MyDashboard' || view === 'SupervisorDashboard';
         if (isDashboard && date !== today) {
             setDate(today);
@@ -2135,6 +2197,16 @@ const App: React.FC = () => {
     const handleOpenAddRemedialPackage = (trainee: Trainee) => {
         setSelectedTraineeForRemedial(trainee);
         setShowAddRemedialPackage(true);
+    };
+
+    const handleBuildDateChange = (direction: 'prev' | 'next') => {
+        const currentDate = new Date(buildDfpDate + 'T00:00:00Z');
+        if (direction === 'prev') {
+            currentDate.setUTCDate(currentDate.getUTCDate() - 1);
+        } else {
+            currentDate.setUTCDate(currentDate.getUTCDate() + 1);
+        }
+        setBuildDfpDate(getLocalDateString(currentDate));
     };
     
     const handleAddTrainee = useCallback((newTrainee: Trainee) => {
@@ -2262,7 +2334,7 @@ const App: React.FC = () => {
         setPublishedSchedules({}); // Clear published schedules on school change
         
         // Reset baseline on school change to avoid stale comparisons
-        const todayStr = new Date().toISOString().split('T')[0];
+        const todayStr = getLocalDateString();
         setBaselineSchedules({ [todayStr]: JSON.parse(JSON.stringify(data.events.filter(e => e.date === todayStr))) });
     };
     
@@ -2270,7 +2342,7 @@ const App: React.FC = () => {
         const initialData = school === 'ESL' ? ESL_DATA : PEA_DATA;
         setEvents(initialData.events);
         setCourses(initialData.courses);
-        const todayStr = new Date().toISOString().split('T')[0];
+        const todayStr = getLocalDateString();
         setPublishedSchedules({ [todayStr]: initialData.events.filter(e => e.date === todayStr) });
     }, [school]);
 
@@ -2737,6 +2809,149 @@ const App: React.FC = () => {
         setSelectedEvent(null);
     };
     
+    // SCT & REMEDIAL AUTO-ADD SYSTEM
+    // Auto-adds HIGH priority SCT and Force Schedule remedial events to highest priority list
+    const syncPriorityEventsWithSctAndRemedial = () => {
+        console.log('\ud83d\udccb Starting sync of priority events with SCT and remedial requests...');
+        
+        let added = 0;
+        const newPriorityEvents = [...highestPriorityEvents];
+        
+        // 1. Auto-add HIGH priority SCT requests
+        const highPrioritySctFlights = sctFlights.filter(req => 
+            req.priority === 'High' && req.name.trim() !== '' && req.currency.trim() !== ''
+        );
+        const highPrioritySctFtds = sctFtds.filter(req => 
+            req.priority === 'High' && req.name.trim() !== '' && req.currency.trim() !== ''
+        );
+        
+        // Process SCT Flights
+        highPrioritySctFlights.forEach(sctReq => {
+            const existingEvent = newPriorityEvents.find(e => 
+                e.flightNumber === sctReq.event && 
+                (e.student === sctReq.name || e.pilot === sctReq.name)
+            );
+            
+            if (!existingEvent) {
+                const syllabusItem = syllabusDetails.find(s => s.code === sctReq.event);
+                const trainee = traineesData.find(t => t.fullName === sctReq.name);
+                const duration = syllabusItem?.duration || 1.5;
+                
+                const newEvent: ScheduleEvent = {
+                    id: `sct-flight-${sctReq.id}`,
+                    date: buildDfpDate,
+                    type: 'flight',
+                    instructor: '', // Will be assigned during scheduling
+                    student: sctReq.flightType === 'Dual' ? sctReq.name : '',
+                    pilot: sctReq.flightType === 'Solo' ? sctReq.name : '',
+                    flightNumber: sctReq.event,
+                    duration: duration,
+                    startTime: 8.0, // Default start time
+                    resourceId: '', // Will be assigned during scheduling
+                    color: 'bg-red-500/50', // Highlight as high priority SCT
+                    flightType: sctReq.flightType,
+                    locationType: 'Local',
+                    origin: school,
+                    destination: school,
+                    isTimeFixed: true,
+                    isSct: true
+                };
+                
+                newPriorityEvents.push(newEvent);
+                added++;
+                console.log('\u2705 Added HIGH priority SCT flight:', sctReq.event, 'for', sctReq.name);
+            }
+        });
+        
+        // Process SCT FTDs
+        highPrioritySctFtds.forEach(sctReq => {
+            const existingEvent = newPriorityEvents.find(e => 
+                e.flightNumber === sctReq.event && 
+                (e.student === sctReq.name || e.pilot === sctReq.name)
+            );
+            
+            if (!existingEvent) {
+                const syllabusItem = syllabusDetails.find(s => s.code === sctReq.event);
+                const trainee = traineesData.find(t => t.fullName === sctReq.name);
+                const duration = syllabusItem?.duration || 1.5;
+                
+                const newEvent: ScheduleEvent = {
+                    id: `sct-ftd-${sctReq.id}`,
+                    date: buildDfpDate,
+                    type: 'ftd',
+                    instructor: '', // Will be assigned during scheduling
+                    student: sctReq.name,
+                    flightNumber: sctReq.event,
+                    duration: duration,
+                    startTime: 8.0, // Default start time
+                    resourceId: '', // Will be assigned during scheduling
+                    color: 'bg-red-500/50', // Highlight as high priority SCT
+                    flightType: 'Dual',
+                    locationType: 'Local',
+                    origin: school,
+                    destination: school,
+                    isTimeFixed: true,
+                    isSct: true
+                };
+                
+                newPriorityEvents.push(newEvent);
+                added++;
+                console.log('\u2705 Added HIGH priority SCT FTD:', sctReq.event, 'for', sctReq.name);
+            }
+        });
+        
+        // 2. Auto-add Force Schedule remedial events
+        remedialRequests.forEach(remedialReq => {
+            if (remedialReq.forceSchedule) {
+                const existingEvent = newPriorityEvents.find(e => 
+                    e.flightNumber === remedialReq.eventCode && 
+                    e.isRemedial
+                );
+                
+                if (!existingEvent) {
+                    const syllabusItem = syllabusDetails.find(s => s.id === remedialReq.eventCode || s.code === remedialReq.eventCode);
+                    const trainee = traineesData.find(t => t.idNumber === remedialReq.traineeId);
+                    const duration = syllabus?.duration || 1.5;
+                    
+                    if (trainee && syllabusItem) {
+                        const newEvent: ScheduleEvent = {
+                            id: `remedial-${remedialReq.traineeId}-${remedialReq.eventCode}`,
+                            date: buildDfpDate,
+                            type: syllabusItem.type === 'FTD' ? 'ftd' : 
+                                  syllabusItem.type === 'Ground School' ? 'ground' : 
+                                  syllabusItem.type === 'Flight' ? 'flight' : 'flight',
+                            instructor: '', // Will be assigned during scheduling
+                            student: trainee.fullName,
+                            flightNumber: syllabusItem.code,
+                            duration: duration,
+                            startTime: 8.0, // Default start time
+                            resourceId: '', // Will be assigned during scheduling
+                            color: 'bg-orange-500/50', // Highlight as remedial
+                            flightType: syllabusItem.sortieType === 'Solo' ? 'Solo' : 'Dual',
+                            locationType: 'Local',
+                            origin: school,
+                            destination: school,
+                            isTimeFixed: true,
+                            isRemedial: true
+                        };
+                        
+                        newPriorityEvents.push(newEvent);
+                        added++;
+                        console.log('\u2705 Added Force Schedule remedial:', syllabusItem.code, 'for', trainee.fullName);
+                    }
+                }
+            }
+        });
+        
+        // Update state if changes were made
+        if (added > 0) {
+            setHighestPriorityEvents(newPriorityEvents);
+            console.log(`\ud83d\udcca Priority Events Sync Complete: Added ${added} auto-generated events`);
+        } else {
+            console.log('\u2705 No new priority events to add');
+        }
+    };
+
     // NEW PT-051 SYNC SYSTEM
     // Syncs PT-051 assessments with Active DFP events
     const syncPt051WithActiveDfp = (currentPublishedSchedules?: Record<string, ScheduleEvent[]>, currentPt051Assessments?: Map<string, Pt051Assessment>) => {
@@ -2963,7 +3178,7 @@ const App: React.FC = () => {
 
     const handleBuildDfp = () => {
         // Use robust string comparison to avoid timezone issues between Local and UTC dates
-        const todayStr = new Date().toISOString().split('T')[0];
+        const todayStr = getLocalDateString();
         
         // If the build date is today or in the past, show the warning
         if (buildDfpDate <= todayStr) {
@@ -4206,6 +4421,8 @@ updates.forEach(update => {
                     conflictingEventIds={nextDayPersonnelAndResourceConflictIds}
                     showValidation={showValidation}
                     onSelectInstructor={handleSelectInstructorFromSchedule}
+                    buildDfpDate={buildDfpDate}
+                    onDateChange={handleBuildDateChange}
                 />;
             case 'NextDayTraineeSchedule':
                 return <NextDayTraineeScheduleView
@@ -4222,6 +4439,8 @@ updates.forEach(update => {
                     conflictingEventIds={nextDayPersonnelAndResourceConflictIds}
                     showValidation={showValidation}
                     onSelectTrainee={handleSelectTraineeFromSchedule}
+                    buildDfpDate={buildDfpDate}
+                    onDateChange={handleBuildDateChange}
                 />;
             case 'CourseRoster':
                 return <CourseRosterView 
@@ -4409,7 +4628,7 @@ updates.forEach(update => {
                           currency: '', 
                           currencyExpire: '', 
                           priority: 'Medium' as 'Medium',
-                          dateRequested: new Date().toISOString().split('T')[0]
+                          dateRequested: getLocalDateString()
                       };
                       if (type === 'flight') setSctFlights(prev => [...prev, newReq]);
                       else setSctFtds(prev => [...prev, newReq]);
@@ -4422,6 +4641,13 @@ updates.forEach(update => {
                       const updater = (prev: SctRequest[]) => prev.map(r => r.id === id ? { ...r, [field]: value } : r);
                       if (type === 'flight') setSctFlights(updater);
                       else setSctFtds(updater);
+                      
+                      // Trigger priority sync after a short delay to ensure state is updated
+                      setTimeout(() => {
+                        if (field === 'priority' && value === 'High') {
+                          syncPriorityEventsWithSctAndRemedial();
+                        }
+                      }, 100);
                     }}
                     syllabusDetails={syllabusDetails}
                     scores={scores}
@@ -4430,17 +4656,25 @@ updates.forEach(update => {
                     onToggleRemedialRequest={(traineeId, eventCode) => {
                         setRemedialRequests(prev => {
                             const existing = prev.find(r => r.traineeId === traineeId && r.eventCode === eventCode);
+                            let newRequests;
                             if (existing) {
                                 // Toggle the forceSchedule property
-                                return prev.map(r => 
+                                newRequests = prev.map(r => 
                                     r.traineeId === traineeId && r.eventCode === eventCode 
                                         ? { ...r, forceSchedule: !r.forceSchedule }
                                         : r
                                 );
                             } else {
                                 // Create new request with forceSchedule set to true
-                                return [...prev, { traineeId, eventCode, forceSchedule: true }];
+                                newRequests = [...prev, { traineeId, eventCode, forceSchedule: true }];
                             }
+                            
+                            // Trigger priority sync after a short delay to ensure state is updated
+                            setTimeout(() => {
+                                syncPriorityEventsWithSctAndRemedial();
+                            }, 100);
+                            
+                            return newRequests;
                         });
                     }}
                     currencyNames={currencyNames}
@@ -4761,6 +4995,8 @@ updates.forEach(update => {
                     currentUserPermission={currentUserPermission}
                     maxDispatchPerHour={maxDispatchPerHour}
                     onUpdateMaxDispatchPerHour={setMaxDispatchPerHour}
+                    timezoneOffset={timezoneOffset}
+                    onUpdateTimezoneOffset={setTimezoneOffset}
                 />;
             case 'CurrencyBuilder':
                 return <CurrencyBuilderView 

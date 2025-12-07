@@ -41,14 +41,21 @@ interface SettingsViewWithMenuProps {
     currentUserPermission: 'Super Admin' | 'Admin' | 'Staff' | 'Trainee' | 'Ops' | 'Scheduler' | 'Course Supervisor';
     maxDispatchPerHour: number;
     onUpdateMaxDispatchPerHour: (value: number) => void;
+    timezoneOffset: number;
+    onUpdateTimezoneOffset: (offset: number) => void;
 }
 
-type SettingsSection = 'scoring-matrix' | 'location' | 'units' | 'duty-turnaround' | 'sct-events' | 'currencies' | 'data-loaders' | 'event-limits' | 'permissions' | 'business-rules';
+type SettingsSection = 'scoring-matrix' | 'location' | 'units' | 'duty-turnaround' | 'sct-events' | 'currencies' | 'data-loaders' | 'event-limits' | 'permissions' | 'business-rules' | 'timezone';
 
 export const SettingsViewWithMenu: React.FC<SettingsViewWithMenuProps> = (props) => {
     const [activeSection, setActiveSection] = useState<SettingsSection>('scoring-matrix');
 
     const menuItems = [
+        { id: 'timezone' as const, label: 'Timezone', icon: (
+            <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-12a1 1 0 10-2 0v4a1 1 0 00.293.707l2.828 2.829a1 1 0 101.415-1.415L11 9.586V6z" clipRule="evenodd" />
+            </svg>
+        )},
         { id: 'scoring-matrix' as const, label: 'Scoring Matrix', icon: (
             <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
                 <path d="M9 2a1 1 0 000 2h2a1 1 0 100-2H9z" />
@@ -141,6 +148,7 @@ export const SettingsViewWithMenu: React.FC<SettingsViewWithMenuProps> = (props)
                 <div className="p-6">
                     <div className="mb-6">
                         <h2 className="text-2xl font-bold text-white mb-3">
+                            {activeSection === 'timezone' && 'Timezone Settings'}
                             {activeSection === 'scoring-matrix' && 'Scoring Matrix'}
                             {activeSection === 'location' && 'Location'}
                             {activeSection === 'units' && 'Units'}

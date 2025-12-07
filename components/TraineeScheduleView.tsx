@@ -317,7 +317,11 @@ const TraineeScheduleView: React.FC<TraineeScheduleViewProps> = ({ date, onDateC
   };
   
   const renderCurrentTimeIndicator = () => {
-    const todayStr = new Date().toISOString().split('T')[0];
+    // Get timezone offset from localStorage
+    const timezoneOffset = parseFloat(localStorage.getItem('timezoneOffset') || '0');
+    const offsetMs = timezoneOffset * 60 * 60 * 1000;
+    const adjustedDate = new Date(Date.now() + offsetMs);
+    const todayStr = `${adjustedDate.getUTCFullYear()}-${String(adjustedDate.getUTCMonth() + 1).padStart(2, '0')}-${String(adjustedDate.getUTCDate()).padStart(2, '0')}`;
     if (date !== todayStr) {
         return null;
     }

@@ -607,6 +607,31 @@ export const NextDayBuildView: React.FC<NextDayBuildViewProps> = ({
         onDateChange(e.target.value);
     };
 
+    const handleDateNavigation = (direction: 'prev' | 'next') => {
+        const currentDate = new Date(date + 'T00:00:00Z');
+        if (direction === 'prev') {
+            currentDate.setUTCDate(currentDate.getUTCDate() - 1);
+        } else {
+            currentDate.setUTCDate(currentDate.getUTCDate() + 1);
+        }
+        const year = currentDate.getUTCFullYear();
+        const month = String(currentDate.getUTCMonth() + 1).padStart(2, '0');
+        const day = String(currentDate.getUTCDate()).padStart(2, '0');
+        onDateChange(`${year}-${month}-${day}`);
+    };
+
+    const formatDate = (dateString: string): string => {
+        try {
+            const dateObj = new Date(dateString + 'T00:00:00Z');
+            if (isNaN(dateObj.getTime())) return '-';
+            const day = String(dateObj.getUTCDate()).padStart(2, '0');
+            const month = dateObj.toLocaleString('en-GB', { month: 'short', timeZone: 'UTC' });
+            return `${day} ${month}`;
+        } catch (e) {
+            return '-';
+        }
+    };
+
     return (
         <div ref={scrollContainerRef} className="flex-1 overflow-auto relative bg-gray-900 select-none">
             <div 
@@ -619,14 +644,22 @@ export const NextDayBuildView: React.FC<NextDayBuildViewProps> = ({
                 }}
             >
                 <div className="sticky top-0 left-0 z-40 bg-gray-800 border-r border-b border-gray-700 p-1">
-                    <div className="bg-gray-700 rounded-md w-full h-full flex items-center justify-center px-2">
-                         <input
-                            type="date"
-                            value={date}
-                            onChange={handleDateInputChange}
-                            className="bg-transparent text-white font-semibold border-0 p-1 focus:ring-2 focus:ring-sky-500 focus:outline-none w-full text-center appearance-none"
-                            style={{ colorScheme: 'dark' }}
-                        />
+                    <div className="bg-gray-700 rounded-md w-full h-full flex items-center justify-center gap-2">
+                        <button 
+                            onClick={() => handleDateNavigation('prev')}
+                            className="text-gray-400 hover:text-white transition-colors p-1"
+                            title="Previous day"
+                        >
+                            ←
+                        </button>
+                        <span className="text-xs text-gray-300 font-bold tracking-wider">{formatDate(date)}</span>
+                        <button 
+                            onClick={() => handleDateNavigation('next')}
+                            className="text-gray-400 hover:text-white transition-colors p-1"
+                            title="Next day"
+                        >
+                            →
+                        </button>
                     </div>
                 </div>
 

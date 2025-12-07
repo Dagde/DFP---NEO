@@ -18,6 +18,8 @@ interface NextDayTraineeScheduleViewProps {
   conflictingEventIds: Set<string>;
   showValidation: boolean;
   onSelectTrainee: (traineeFullName: string) => void;
+  buildDfpDate: string;
+  onDateChange: (direction: 'prev' | 'next') => void;
 }
 
 const PIXELS_PER_HOUR = 200;
@@ -53,7 +55,9 @@ export const NextDayTraineeScheduleView: React.FC<NextDayTraineeScheduleViewProp
     conflictingEventIds, 
     showValidation,
     onSelectTrainee,
-    traineesData
+    traineesData,
+    buildDfpDate,
+    onDateChange
 }) => {
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const [currentTime, setCurrentTime] = useState(new Date());
@@ -75,21 +79,70 @@ export const NextDayTraineeScheduleView: React.FC<NextDayTraineeScheduleViewProp
     return () => clearInterval(timerId);
   }, []);
 
-  const formattedDate = useMemo(() => {
-    const tomorrow = new Date();
-    tomorrow.setDate(tomorrow.getDate() + 1);
-    return tomorrow.toLocaleDateString(undefined, {
-      day: '2-digit',
-      month: 'short'
-    }).toUpperCase();
-  }, []);
+  const formatDate = (dateString: string | undefined): string => {
+    if (!dateString) return '-';
+    try {
+      const date = new Date(dateString + 'T00:00:00Z');
+      if (isNaN(date.getTime())) return '-';
+      const day = String(date.getUTCDate()).padStart(2, '0');
+      const month = date.toLocaleString('en-GB', { month: 'short', timeZone: 'UTC' });
+      return `${day} ${month}`;
+    } catch (e) {
+      return '-';
+    }
+  };
 
-  const formattedTime = currentTime.toLocaleTimeString(undefined, {
-    hour: '2-digit',
-    minute: '2-digit',
-    second: '2-digit',
-    hour12: false
-  });
+  const formattedDate = useMemo(() => {
+    return formatDate(buildDfpDate);
+  }, [buildDfpDate]);
+
+  // Sort trainees by course first (numerically), then alphabetically by surname
+  const sortedTrainees = useMemo(() => {
+    const traineeMap = new Map(traineesData.map(t => [t.fullName, t]));
+    
+    const sorted = [...trainees].sort((a, b) => {
+      const traineeA = traineeMap.get(a);
+      const traineeB = traineeMap.get(b);
+      
+      if (!traineeA || !traineeB) {
+        console.log('Missing trainee data:', a, b);
+        return 0;
+      }
+      
+      // First sort by course (numerically)
+      if (traineeA.course !== traineeB.course) {
+        // Extract course prefix and number (e.g., "CSE 101" -> ["CSE", "101"])
+        const courseAMatch = traineeA.course.match(/^([A-Za-z]+)\s*(\d+)$/);
+        const courseBMatch = traineeB.course.match(/^([A-Za-z]+)\s*(\d+)$/);
+        
+        if (courseAMatch && courseBMatch) {
+          const [, prefixA, numA] = courseAMatch;
+          const [, prefixB, numB] = courseBMatch;
+          
+          // First compare prefix (e.g., "CSE" vs "BNF")
+          if (prefixA !== prefixB) {
+            return prefixA.localeCompare(prefixB);
+          }
+          
+          // Then compare numbers numerically
+          return parseInt(numA, 10) - parseInt(numB, 10);
+        }
+        
+        // Fallback to string comparison if pattern doesn't match
+        return traineeA.course.localeCompare(traineeB.course);
+      }
+      
+      // Then sort by surname (first part before comma), case-insensitive
+      // Format is "Surname, FirstName" or "Surname, FirstName – Course"
+      const surnameA = (traineeA.fullName.split(',')[0] || traineeA.fullName).trim().toLowerCase();
+      const surnameB = (traineeB.fullName.split(',')[0] || traineeB.fullName).trim().toLowerCase();
+      const result = surnameA.localeCompare(surnameB);
+      
+      return result;
+    });
+    
+    return sorted;
+  }, [trainees, traineesData]);
 
   useEffect(() => {
     const scrollContainer = scrollContainerRef.current;
@@ -156,7 +209,7 @@ export const NextDayTraineeScheduleView: React.FC<NextDayTraineeScheduleViewProp
 
     const initialPositions = new Map<string, { startTime: number, rowIndex: number }>();
     const traineeName = event.student || event.pilot || '';
-    const rowIndex = trainees.findIndex(t => t === traineeName);
+    const rowIndex = sortedTrainees.findIndex(t => t === traineeName);
     
     if (rowIndex !== -1) {
         initialPositions.set(event.id, { startTime: event.startTime, rowIndex: rowIndex });
@@ -214,7 +267,7 @@ export const NextDayTraineeScheduleView: React.FC<NextDayTraineeScheduleViewProp
       setTimeout(() => { didDragRef.current = false; }, 0);
   };
 
-  const totalRows = trainees.length;
+  const totalRows = sortedTrainees.length;
   const timelineWidth = TOTAL_HOURS * PIXELS_PER_HOUR * zoomLevel;
   const containerHeight = totalRows * ROW_HEIGHT;
 
@@ -410,9 +463,22 @@ export const NextDayTraineeScheduleView: React.FC<NextDayTraineeScheduleViewProp
         }}
       >
         <div className="sticky top-0 left-0 z-40 bg-gray-800 border-r border-b border-gray-700 p-1">
-            <div className="bg-gray-700 rounded-md w-full h-full flex flex-col items-center justify-center">
-                <span className="text-xs text-gray-400 font-bold tracking-wider" style={{ lineHeight: 1 }}>{formattedDate}</span>
-                <span className="font-mono font-bold text-sm text-gray-300" style={{ lineHeight: 1 }}>{formattedTime}</span>
+            <div className="bg-gray-700 rounded-md w-full h-full flex items-center justify-center gap-2">
+                <button 
+                    onClick={() => onDateChange('prev')}
+                    className="text-gray-400 hover:text-white transition-colors p-1"
+                    title="Previous day"
+                >
+                    ←
+                </button>
+                <span className="text-xs text-gray-300 font-bold tracking-wider">{formattedDate}</span>
+                <button 
+                    onClick={() => onDateChange('next')}
+                    className="text-gray-400 hover:text-white transition-colors p-1"
+                    title="Next day"
+                >
+                    →
+                </button>
             </div>
         </div>
         
@@ -423,7 +489,7 @@ export const NextDayTraineeScheduleView: React.FC<NextDayTraineeScheduleViewProp
         </div>
         
         <div className="sticky left-0 z-30 bg-gray-800 border-r border-gray-700">
-          <TraineeColumn trainees={trainees} rowHeight={ROW_HEIGHT} onTraineeClick={onSelectTrainee} />
+          <TraineeColumn trainees={sortedTrainees} rowHeight={ROW_HEIGHT} onTraineeClick={onSelectTrainee} />
         </div>
 
         <div
@@ -437,7 +503,7 @@ export const NextDayTraineeScheduleView: React.FC<NextDayTraineeScheduleViewProp
             {renderNightShade()}
             {renderDaylightLines()}
             {showValidation && renderPrePostBars()}
-            {trainees.flatMap((trainee, rowIndex) => {
+            {sortedTrainees.flatMap((trainee, rowIndex) => {
               const traineeEvents = events.filter(event => 
                 event.student === trainee || 
                 (event.flightType === 'Solo' && event.pilot === trainee)

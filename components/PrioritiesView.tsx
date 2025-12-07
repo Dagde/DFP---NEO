@@ -304,7 +304,7 @@ export const PrioritiesView: React.FC<PrioritiesViewProps> = ({
 
   const isRemedialEvent = (event: ScheduleEvent) => {
       const item = syllabusDetails.find(s => s.code === event.flightNumber);
-      return item?.isRemedial || event.flightNumber.includes('REM') || event.flightNumber.endsWith('RF');
+      return item?.isRemedial || event.flightNumber.includes('REM') || event.flightNumber.endsWith('RF') || event.isRemedial;
   };
 
   const standardPriorityEvents = highestPriorityEvents.filter(e => !isRemedialEvent(e));
