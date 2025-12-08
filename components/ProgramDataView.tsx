@@ -185,9 +185,11 @@ const ProgramDataView: React.FC<ProgramDataViewProps> = ({
     });
 
     const traineeMap = new Map<string, Trainee>(traineesData.map(t => [t.fullName, t]));
+    const instructorMap = new Map<string, Instructor>(instructorsData.map(i => [i.name, i]));
     const traineesWithPrimary = new Set<string>();
     const traineesWithSecondary = new Set<string>();
-    const traineesWithNonPrimary = new Set<string>();
+    const traineesWithInstructorFromFlight = new Set<string>();
+    const traineesWithOtherInstructors = new Set<string>();
 
     for (const event of flightOrFtdEvents) {
         const traineeName = event.student || event.pilot;
@@ -197,13 +199,18 @@ const ProgramDataView: React.FC<ProgramDataViewProps> = ({
         if (!trainee) continue;
         
         const instructorName = event.instructor;
+        const instructor = instructorMap.get(instructorName);
 
         if (trainee.primaryInstructor === instructorName) {
             traineesWithPrimary.add(traineeName);
-        }
-        if (trainee.secondaryInstructor === instructorName) {
+        } else if (trainee.secondaryInstructor === instructorName) {
             traineesWithSecondary.add(traineeName);
-            traineesWithNonPrimary.add(traineeName);
+        } else if (instructor && trainee.flight && instructor.flight === trainee.flight) {
+            // Not primary or secondary, but from same flight
+            traineesWithInstructorFromFlight.add(traineeName);
+        } else {
+            // Not primary, secondary, or from same flight
+            traineesWithOtherInstructors.add(traineeName);
         }
     }
     
@@ -231,7 +238,8 @@ const ProgramDataView: React.FC<ProgramDataViewProps> = ({
       totalAvailableTrainees,
       traineesWithPrimaryList: Array.from(traineesWithPrimary).sort(),
       traineesWithSecondaryList: Array.from(traineesWithSecondary).sort(),
-      traineesWithNonPrimaryList: Array.from(traineesWithNonPrimary).sort(),
+      traineesWithInstructorFromFlightList: Array.from(traineesWithInstructorFromFlight).sort(),
+      traineesWithOtherInstructorsList: Array.from(traineesWithOtherInstructors).sort(),
     };
   }, [date, events, instructorsData, traineesData, activeCourses]);
 
@@ -376,22 +384,53 @@ const ProgramDataView: React.FC<ProgramDataViewProps> = ({
     );
 };
 
-  const ListCard: React.FC<{ title: string; trainees: Trainee[] }> = ({ title, trainees }) => (
-    <div className="bg-gray-800 rounded-lg shadow-lg border border-gray-700 flex flex-col h-fit">
-      <h3 className="p-3 text-base font-semibold text-gray-200 border-b border-gray-700 flex justify-between items-center">
-        <span>{title}</span>
-        <span className="text-sm font-mono text-sky-400 bg-gray-700/50 px-2 py-0.5 rounded">{trainees.length}</span>
-      </h3>
-      <ul className="p-3 space-y-2 overflow-y-auto max-h-60">
-        {trainees.length > 0 ? trainees.map((trainee, index) => (
-          <li key={trainee.idNumber} className="flex items-baseline text-sm text-gray-300">
-            <span className="font-mono text-gray-500 w-8 text-right mr-2 flex-shrink-0">{index + 1}.</span>
-            <span className="font-semibold text-gray-200 truncate">{trainee.name}</span>
-          </li>
-        )) : <li className="text-sm text-gray-500 italic text-center">None</li>}
-      </ul>
-    </div>
-  );
+  const ListCard: React.FC<{ title: string; trainees: Trainee[] }> = ({ title, trainees }) => {
+    const [filter, setFilter] = useState<string>('Total');
+    
+    // Get unique courses from trainees
+    const courses = useMemo(() => {
+      const uniqueCourses = new Set(trainees.map(t => t.course));
+      return ['Total', ...Array.from(uniqueCourses).sort()];
+    }, [trainees]);
+    
+    // Filter trainees based on selected course
+    const filteredTrainees = useMemo(() => {
+      if (filter === 'Total') return trainees;
+      return trainees.filter(t => t.course === filter);
+    }, [trainees, filter]);
+    
+    return (
+      <div className="bg-gray-800 rounded-lg shadow-lg border border-gray-700 flex flex-col h-fit">
+        <div className="p-3 border-b border-gray-700">
+          <div className="flex justify-between items-center mb-2">
+            <span className="text-base font-semibold text-gray-200">{title}</span>
+            <span className="text-sm font-mono text-sky-400 bg-gray-700/50 px-2 py-0.5 rounded">
+              {filteredTrainees.length}
+            </span>
+          </div>
+          <select
+            value={filter}
+            onChange={(e) => setFilter(e.target.value)}
+            className="w-full px-2 py-1 text-sm bg-gray-700 text-gray-200 border border-gray-600 rounded focus:outline-none focus:ring-2 focus:ring-sky-500"
+          >
+            {courses.map(course => (
+              <option key={course} value={course}>
+                {course}
+              </option>
+            ))}
+          </select>
+        </div>
+        <ul className="p-3 space-y-2 overflow-y-auto max-h-60">
+          {filteredTrainees.length > 0 ? filteredTrainees.map((trainee, index) => (
+            <li key={trainee.idNumber} className="flex items-baseline text-sm text-gray-300">
+              <span className="font-mono text-gray-500 w-8 text-right mr-2 flex-shrink-0">{index + 1}.</span>
+              <span className="font-semibold text-gray-200 truncate">{trainee.name}</span>
+            </li>
+          )) : <li className="text-sm text-gray-500 italic text-center">None</li>}
+        </ul>
+      </div>
+    );
+  };
 
   return (
     <div className="flex-1 flex flex-col bg-gray-900 overflow-y-auto">
@@ -528,10 +567,17 @@ const ProgramDataView: React.FC<ProgramDataViewProps> = ({
                       onPersonClick={onNavigateAndSelectPerson}
                   />
                   <InteractiveStatCard
-                      title="Trainees with non-primary Instructor"
-                      value={stats.traineesWithNonPrimaryList.length}
-                      description="Paired with Secondary Instructor"
-                      personnelList={stats.traineesWithNonPrimaryList}
+                      title="Trainees with Instructor from Flight"
+                      value={stats.traineesWithInstructorFromFlightList.length}
+                      description="Paired with Instructor from same Flight"
+                      personnelList={stats.traineesWithInstructorFromFlightList}
+                      onPersonClick={onNavigateAndSelectPerson}
+                  />
+                  <InteractiveStatCard
+                      title="Trainees with Other Instructors"
+                      value={stats.traineesWithOtherInstructorsList.length}
+                      description="Paired with other Instructors"
+                      personnelList={stats.traineesWithOtherInstructorsList}
                       onPersonClick={onNavigateAndSelectPerson}
                   />
               </div>
