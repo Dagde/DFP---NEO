@@ -1551,7 +1551,7 @@ const App: React.FC = () => {
         return getLocalDateString(tomorrow);
     });
     const [availableAircraftCount, setAvailableAircraftCount] = useState(24);
-    const [availableFtdCount, setAvailableFtdCount] = useState(4);
+    const [availableFtdCount, setAvailableFtdCount] = useState(school === 'ESL' ? 5 : 4);
     const [availableCptCount, setAvailableCptCount] = useState(4);
     const [flyingStartTime, setFlyingStartTime] = useState(8.0); // 08:00
     const [flyingEndTime, setFlyingEndTime] = useState(17.0); // 17:00
@@ -1760,6 +1760,11 @@ const App: React.FC = () => {
     useEffect(() => {
         localStorage.setItem('timezoneOffset', timezoneOffset.toString());
     }, [timezoneOffset]);
+
+    // Update FTD available count based on school location
+    useEffect(() => {
+        setAvailableFtdCount(school === 'ESL' ? 5 : 4);
+    }, [school]);
 
     // Auto-update buildDfpDate to tomorrow's date on mount and daily
     useEffect(() => {
