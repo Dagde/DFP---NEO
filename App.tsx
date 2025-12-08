@@ -842,6 +842,9 @@ function generateDfpInternal(
         standbyPrefix: string | null,
         isNightPass: boolean
     ) => {
+        // Time increments for slot hunting:
+        // - Flight: 5 minutes (staggered departures to avoid all aircraft taxiing at once)
+        // - Ground/CPT: 15 minutes (represents minimum gap between end of one ground school and start of next)
         const timeIncrement = type === 'flight' ? 5 / 60 : 15 / 60;
         const listName = `${isNightPass ? 'BNF' : type.toUpperCase()} ${isPlusOne ? 'Next+1' : 'Next'}`;
         setProgress({ message: `Placing ${listName} events...`, percentage: 40 + (['flight', 'ftd', 'cpt', 'ground'].indexOf(type) * 10) });
@@ -868,12 +871,16 @@ function generateDfpInternal(
 
                 let searchStartTime = startTimeBoundary;
                 
+                // Plus-One Rule: Plus-one events are scheduled "after their primary"
+                // This means after the trainee's first scheduled event (their Next Event)
                 if (isPlusOne) { 
                     const nextEvent = generatedEvents.find(e => getPersonnel(e).includes(trainee.fullName) && e.flightNumber === next!.id);
                     if (!nextEvent) { 
+                        // Primary not scheduled yet, skip this trainee for now
                         remainingForNextPass.push(trainee);
                         continue; 
                     }
+                    // Start search after primary event ends
                     searchStartTime = Math.max(startTimeBoundary, nextEvent.startTime + nextEvent.duration);
                 }
 
@@ -1494,11 +1501,12 @@ function generateDfpInternal(
     );
     
     // 4. Schedule Night Flight Events (if 2+ BNF trainees): a) Highest Priority, b) Next Events
+    // Night Flying Rule: Only scheduled when 2+ BNF trainees (1 trainee = no night flying)
     setProgress({ message: 'Scheduling Night Flying...', percentage: 55 });
     if(nextEventLists.bnf.length >= 2) {
          // Highest Priority Night Flight Events are already added at the start
          
-         // Schedule Night Flight Next Events
+         // Schedule Night Flight Next Events (Wave One)
          const bnfWaveOneList = applyCoursePriority(nextEventLists.bnf);
          scheduleList(bnfWaveOneList, 'flight', false, commenceNightFlying, ceaseNightFlying, 'BNF-STBY', true);
     }
@@ -1559,7 +1567,9 @@ function generateDfpInternal(
         false
     );
     
-    // Schedule Night Flight Plus-One Events (if 2+ BNF trainees)
+    // Schedule Night Flight Plus-One Events (Wave Two) - if 2+ BNF trainees
+    // Two-Wave System: Wave One = Next Events, Wave Two = Plus-One Events
+    // Each BNF trainee can fly up to 2 night flights (special limit for BNF)
     if(nextEventLists.bnf.length >= 2) {
          setProgress({ message: 'Scheduling Night Flight Events (Plus-One)...', percentage: 80 });
          const bnfWaveTwoList = nextEventLists.bnf.filter(trainee => {
