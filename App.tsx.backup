@@ -58,7 +58,7 @@ import CptConflictWarningFlyout from './components/CptConflictWarningFlyout';
 import MyDashboard from './components/MyDashboard';
 import SupervisorDashboard from './components/SupervisorDashboard';
 import { NextDayBuildView } from './components/NextDayBuildView';
-import { PrioritiesView } from './components/PrioritiesView';
+import { PrioritiesViewWithMenu } from './components/PrioritiesViewWithMenu';
 import ProgramDataView from './components/ProgramDataView';
 import BuildDfpLoadingFlyout from './components/BuildDfpLoadingFlyout';
 import BuildDateWarningFlyout from './components/BuildDateWarningFlyout';
@@ -77,7 +77,7 @@ import UnsavedChangesWarning from './components/UnsavedChangesWarning';
 import PT051View from './components/PT051View';
 import AuthorisationFlyout from './components/AuthorisationFlyout';
 // FIX: Corrected import to be a named import as per module export.
-import { SettingsView } from './components/SettingsView';
+import { SettingsViewWithMenu } from './components/SettingsViewWithMenu';
 import AuthorisationView from './components/AuthorisationView';
 import LocalityChangeFlyout from './components/LocalityChangeFlyout';
 import { PostFlightView } from './components/PostFlightView';
@@ -97,6 +97,21 @@ import { NextDayTraineeScheduleView } from './components/NextDayTraineeScheduleV
 // --- MOCK DATA ---
 import { ESL_DATA, PEA_DATA, INITIAL_SYLLABUS_DETAILS, DEFAULT_PHRASE_BANK } from './mockData';
 import { INITIAL_CURRENCY_REQUIREMENTS, INITIAL_MASTER_CURRENCIES } from './data/currencies';
+
+// --- PT-051 STRUCTURE ---
+const PT051_STRUCTURE = [
+  { category: 'Core Dimensions', elements: ['Airmanship', 'Preparation', 'Technique'] },
+  { category: 'Procedural Framework', elements: ['Pre-Post Flight', 'Walk Around', 'Strap-in', 'Ground Checks', 'Airborne Checks'] },
+  { category: 'Takeoff', elements: ['Stationary'] },
+  { category: 'Departure', elements: ['Visual'] },
+  { category: 'Core Handling Skills', elements: ['Effects of Control', 'Trimming', 'Straight and Level'] },
+  { category: 'Turns', elements: ['Level medium Turn', 'Level Steep turn'] },
+  { category: 'Recovery', elements: ['Visual - Initial &amp; Pitch'] },
+  { category: 'Landing', elements: ['Landing', 'Crosswind'] },
+  { category: 'Domestics', elements: ['Radio Comms', 'Situational Awareness', 'Lookout', 'Knowledge'] },
+];
+
+const ALL_ELEMENTS = PT051_STRUCTURE.flatMap(cat => cat.elements);
 
 // --- UTILITY FUNCTIONS ---
 const isOverlapping = (f1: Omit<ScheduleEvent, 'date'>, f2: Omit<ScheduleEvent, 'date'>): boolean => {
@@ -488,12 +503,96 @@ function generateDfpInternal(config: DfpConfig, setProgress: (progress: { messag
         eventLimits, sctFtds, sctFlights, remedialRequests
     } = config;
 
+    // --- HELPER FUNCTIONS ---
+    
+    // Calculate total duty hours for an instructor including all assigned events (day and night)
+    const calculateInstructorDutyHours = (instructorName: string, includeProposedEvent?: any): number => {
+        const eventsToCheck = includeProposedEvent 
+            ? [...generatedEvents, includeProposedEvent]
+            : generatedEvents;
+        
+        const instructorEvents = eventsToCheck.filter(e => getPersonnel(e).includes(instructorName));
+        
+        if (instructorEvents.length === 0) return 0;
+        
+        const bookingWindows = instructorEvents
+            .map(e => getEventBookingWindowForAlgo(e, syllabusDetails))
+            .sort((a, b) => a.start - b.start);
+        
+        // Calculate total duty hours by merging overlapping windows
+        // Include both day flying window AND night flying window for soft duty limit
+        let totalDutyHours = 0;
+        let currentWindow = null;
+        
+        for (const window of bookingWindows) {
+            // Include events from both day and night flying windows
+            // Day window: flyingStartTime to flyingEndTime
+            // Night window: commenceNightFlying to ceaseNightFlying (if night flying is scheduled)
+            let windowStart = window.start;
+            let windowEnd = window.end;
+            
+            // Include day flying window
+            const dayStart = Math.max(windowStart, flyingStartTime);
+            const dayEnd = Math.min(windowEnd, flyingEndTime);
+            
+            // Include night flying window (if applicable)
+            let nightStart = 0;
+            let nightEnd = 0;
+            if (nextEventLists.bnf.length >= 2) { // Night flying is scheduled
+                nightStart = Math.max(windowStart, commenceNightFlying);
+                nightEnd = Math.min(windowEnd, ceaseNightFlying);
+            }
+            
+            // Process day window portion
+            if (dayStart < dayEnd) {
+                if (!currentWindow) {
+                    currentWindow = { start: dayStart, end: dayEnd };
+                } else if (dayStart <= currentWindow.end) {
+                    currentWindow.end = Math.max(currentWindow.end, dayEnd);
+                } else {
+                    totalDutyHours += currentWindow.end - currentWindow.start;
+                    currentWindow = { start: dayStart, end: dayEnd };
+                }
+            }
+            
+            // Process night window portion (if night flying is scheduled)
+            if (nightStart < nightEnd && nextEventLists.bnf.length >= 2) {
+                if (!currentWindow) {
+                    currentWindow = { start: nightStart, end: nightEnd };
+                } else if (nightStart <= currentWindow.end) {
+                    currentWindow.end = Math.max(currentWindow.end, nightEnd);
+                } else {
+                    totalDutyHours += currentWindow.end - currentWindow.start;
+                    currentWindow = { start: nightStart, end: nightEnd };
+                }
+            }
+        }
+        
+        // Add the last window
+        if (currentWindow) {
+            totalDutyHours += currentWindow.end - currentWindow.start;
+        }
+        
+        return totalDutyHours;
+    };
+
+    // Check if a person (staff or trainee) is scheduled for ANY night events (flights, FTD, CPT, ground, Duty Sup)
+    const isPersonScheduledForNightEvents = (personName: string): boolean => {
+        if (nextEventLists.bnf.length < 2) return false; // No night flying scheduled
+        
+        const personEvents = generatedEvents.filter(e => getPersonnel(e).includes(personName));
+        return personEvents.some(e => {
+            const bookingWindow = getEventBookingWindowForAlgo(e, syllabusDetails);
+            return bookingWindow.start >= commenceNightFlying && bookingWindow.start < ceaseNightFlying;
+        });
+    };
+
     setProgress({ message: 'Initializing DFP build...', percentage: 0 });
 
     let generatedEvents: Omit<ScheduleEvent, 'date'>[] = [];
-    const eventCounts = new Map<string, { flightFtd: number, ground: number, dutySup: number, isStby: boolean }>();
-    originalInstructors.forEach(i => eventCounts.set(i.name, { flightFtd: 0, ground: 0, dutySup: 0, isStby: false }));
-    trainees.forEach(t => eventCounts.set(t.fullName, { flightFtd: 0, ground: 0, dutySup: 0, isStby: false }));
+    const eventCounts = new Map<string, { flightFtd: number, ground: number, cpt: number, dutySup: number, isStby: boolean }>();
+    originalInstructors.forEach(i => eventCounts.set(i.name, { flightFtd: 0, ground: 0, cpt: 0, dutySup: 0, isStby: false }));
+    trainees.forEach(t => eventCounts.set(t.fullName, { flightFtd: 0, ground: 0, cpt: 0, dutySup: 0, isStby: false }));
     
     highestPriorityEvents.forEach(event => {
         if(event.date === buildDate && event.isTimeFixed) {
@@ -502,14 +601,18 @@ function generateDfpInternal(config: DfpConfig, setProgress: (progress: { messag
             getPersonnel(event).forEach(personName => {
                 const counts = eventCounts.get(personName);
                 if (counts && (event.type === 'flight' || event.type === 'ftd')) { counts.flightFtd++; } 
-                else if (counts && (event.type === 'ground' || event.type === 'cpt')) { counts.ground++; }
+                else if (counts && event.type === 'ground') { counts.ground++; }
+                else if (counts && event.type === 'cpt') { counts.cpt++; }
             });
         }
     });
 
     setProgress({ message: 'Compiling "Next Event" lists...', percentage: 10 });
     
-    const activeTrainees = trainees.filter(t => !t.isPaused && !isPersonStaticallyUnavailable(t, flyingStartTime, ceaseNightFlying, buildDate, 'flight'));
+    const activeTrainees = trainees.filter(t => 
+        !t.isPaused && 
+        !isPersonStaticallyUnavailable(t, flyingStartTime, ceaseNightFlying, buildDate, 'flight')
+    );
     
     const traineeNextEventMap = new Map<string, { next: SyllabusItemDetail | null, plusOne: SyllabusItemDetail | null }>();
 
@@ -612,21 +715,27 @@ function generateDfpInternal(config: DfpConfig, setProgress: (progress: { messag
         return finalTrainees;
     };
     
+    // NEW RULE: Filter out BNF trainees from day event lists (complete separation)
+    const bnfTraineeNames = new Set(nextEventLists.bnf.map(t => t.fullName));
+    const filterOutBnfTrainees = (list: Trainee[]) => 
+        nextEventLists.bnf.length >= 2 ? list.filter(t => !bnfTraineeNames.has(t.fullName)) : list;
+
     const buildOrder: { list: Trainee[]; type: 'flight' | 'ftd' | 'cpt' | 'ground'; isPlusOne: boolean }[] = [
-        { list: applyCoursePriority(nextEventLists.flight), type: 'flight', isPlusOne: false },
-        { list: applyCoursePriority(nextPlusOneLists.flight), type: 'flight', isPlusOne: true },
-        { list: applyCoursePriority(nextEventLists.ftd), type: 'ftd', isPlusOne: false },
-        { list: applyCoursePriority(nextPlusOneLists.ftd), type: 'ftd', isPlusOne: true },
-        { list: applyCoursePriority(nextEventLists.cpt), type: 'cpt', isPlusOne: false },
-        { list: applyCoursePriority(nextPlusOneLists.cpt), type: 'cpt', isPlusOne: true },
-        { list: applyCoursePriority(nextEventLists.ground), type: 'ground', isPlusOne: false },
-        { list: applyCoursePriority(nextPlusOneLists.ground), type: 'ground', isPlusOne: true },
+        { list: applyCoursePriority(filterOutBnfTrainees(nextEventLists.flight)), type: 'flight', isPlusOne: false },
+        { list: applyCoursePriority(filterOutBnfTrainees(nextPlusOneLists.flight)), type: 'flight', isPlusOne: true },
+        { list: applyCoursePriority(filterOutBnfTrainees(nextEventLists.ftd)), type: 'ftd', isPlusOne: false },
+        { list: applyCoursePriority(filterOutBnfTrainees(nextPlusOneLists.ftd)), type: 'ftd', isPlusOne: true },
+        { list: applyCoursePriority(filterOutBnfTrainees(nextEventLists.cpt)), type: 'cpt', isPlusOne: false },
+        { list: applyCoursePriority(filterOutBnfTrainees(nextPlusOneLists.cpt)), type: 'cpt', isPlusOne: true },
+        { list: applyCoursePriority(filterOutBnfTrainees(nextEventLists.ground)), type: 'ground', isPlusOne: false },
+        { list: applyCoursePriority(filterOutBnfTrainees(nextPlusOneLists.ground)), type: 'ground', isPlusOne: true },
     ];
     
     const nightPairings = new Map<string, string>();
     let instructors = [...originalInstructors.map(i => ({...i, unavailability: [...(i.unavailability || [])]}))]; 
 
-    if (allowNightFlying && nextEventLists.bnf.length >= 2) {
+    // NEW LOGIC: If there are 2+ trainees waiting for night flying, then night flying is programmed
+    if (nextEventLists.bnf.length >= 2) {
         const bnfTraineeCount = nextEventLists.bnf.length;
         const instructorsNeeded = bnfTraineeCount;
 
@@ -724,9 +833,12 @@ function generateDfpInternal(config: DfpConfig, setProgress: (progress: { messag
                             if (type === 'flight' || type === 'ftd') { 
                                 tCounts.flightFtd++; 
                                 ipCounts.flightFtd++; 
-                            } else { 
+                            } else if (type === 'ground') { 
                                 tCounts.ground++; 
                                 ipCounts.ground++; // Count ground events for instructors
+                            } else if (type === 'cpt') {
+                                tCounts.cpt++; 
+                                ipCounts.cpt++; // Count CPT events for instructors
                             }
                             
                             if (type === 'cpt' || type === 'ground') {
@@ -781,14 +893,21 @@ function generateDfpInternal(config: DfpConfig, setProgress: (progress: { messag
     ): Omit<ScheduleEvent, 'date'> | 'stby' | null => {
         
         const traineeCounts = eventCounts.get(trainee.fullName)!;
+        
+        // CRITICAL FIX: For night flying BNF events, allow 2 flights per night
+        const isBnfEvent = syllabusItem.code.startsWith('BNF') && syllabusItem.type === 'Flight';
+        const bnfFlightLimit = isBnfEvent ? 2 : eventLimits.trainee.maxFlightFtd;
+        
         if (type === 'flight' || type === 'ftd') {
-             if (traineeCounts.flightFtd >= eventLimits.trainee.maxFlightFtd) return null;
+             if (traineeCounts.flightFtd >= bnfFlightLimit) return null;
         } else {
              if (traineeCounts.ground >= 2) return null;
         }
         
-        // Also check total event count for trainees
-        if ((traineeCounts.flightFtd + traineeCounts.ground + traineeCounts.cpt) >= eventLimits.trainee.maxTotal) return null;
+        // Also check total event count for trainees (Flight + FTD + CPT + Ground = max 3 events for staff)
+        // For BNF events, allow higher total limit to accommodate 2 night flights
+        const bnfTotalLimit = isBnfEvent ? 4 : eventLimits.trainee.maxTotal;
+        if ((traineeCounts.flightFtd + traineeCounts.ground + traineeCounts.cpt) >= bnfTotalLimit) return null;
         
         const proposedBookingWindow = getEventBookingWindowForAlgo({ startTime, flightNumber: syllabusItem.id, duration: syllabusItem.duration }, syllabusDetails);
         if (isPersonStaticallyUnavailable(trainee, proposedBookingWindow.start, proposedBookingWindow.end, buildDate, type)) return null;
@@ -811,19 +930,37 @@ function generateDfpInternal(config: DfpConfig, setProgress: (progress: { messag
 
                 const ipCounts = eventCounts.get(instructor.name)!;
                 const execLimit = eventLimits.exec.maxFlightFtd;
-                const standardLimit = eventLimits.instructor.maxTotal;
+                const flightFtdLimit = eventLimits.instructor.maxFlightFtd;
+                const totalEventLimit = eventLimits.instructor.maxTotal;
+
+                // CRITICAL FIX: Check soft duty limit BEFORE any other checks
+                const proposedEvent = {
+                    ...proposedBookingWindow,
+                    instructor: instructor.name,
+                    flightNumber: syllabusItemForCheck.id,
+                    type: syllabusItemForCheck.type
+                };
+                const currentDutyHours = calculateInstructorDutyHours(instructor.name, proposedEvent);
+                
+                if (currentDutyHours > preferredDutyPeriod) {
+                    console.log(`SOFT LIMIT VIOLATION: ${instructor.name} would exceed ${preferredDutyPeriod}hrs (current: ${currentDutyHours.toFixed(2)}hrs)`);
+                    return null;
+                }
 
                 if (instructor.isExecutive) {
                     if (isNightPass) {
-                        // For night pass, execs can fly up to the standard limit
-                        if (ipCounts.flightFtd >= standardLimit) return null;
+                        // For night pass, execs can fly up to the total event limit
+                        if ((ipCounts.flightFtd + ipCounts.ground + ipCounts.cpt) >= totalEventLimit) return null;
                     } else {
-                        // For day pass, execs have a stricter limit
+                        // For day pass, execs have a stricter flight/FTD limit
                         if (ipCounts.flightFtd >= execLimit) return null;
                     }
                 } else {
-                     if (ipCounts.flightFtd >= standardLimit) return null;
-                     // Check Flying Supervisor duty limit
+                     // NEW ALGORITHM: Duty Supervisor counts toward total event limits
+                     if (ipCounts.flightFtd >= flightFtdLimit) return null;
+                     // Check total event limit including Duty Supervisor (Flight + FTD + CPT + Ground + Duty Sup = max 3)
+                     if ((ipCounts.flightFtd + ipCounts.ground + ipCounts.cpt + ipCounts.dutySup) >= totalEventLimit) return null;
+                     // Check Flying Supervisor duty limit (included in total events)
                      if (instructor.isFlyingSupervisor && ipCounts.dutySup >= eventLimits.instructor.maxDutySup) return null;
                 }
                 
@@ -870,24 +1007,32 @@ function generateDfpInternal(config: DfpConfig, setProgress: (progress: { messag
             let candidates: Instructor[] = [];
 
             if (type === 'ftd') {
+                // NEW RULE: COMPLETE separation - NO day events for instructors with night events
                 const simIps = instructors
-                    .filter(i => i.role === 'SIM IP')
+                    .filter(i => 
+                        i.role === 'SIM IP' && 
+                        !(nextEventLists.bnf.length >= 2 && isPersonScheduledForNightEvents(i.name))
+                    )
                     .sort((a, b) => (eventCounts.get(a.name)?.flightFtd || 0) - (eventCounts.get(b.name)?.flightFtd || 0));
                 
-                const qfis = instructors.filter(i => i.role === 'QFI');
+                // NEW RULE: COMPLETE separation - NO day events for instructors with night events
+                const availableQfis = instructors.filter(i => 
+                    i.role === 'QFI' && 
+                    !(nextEventLists.bnf.length >= 2 && isPersonScheduledForNightEvents(i.name))
+                );
                 let orderedQfis: Instructor[] = [];
                 
                 if (programWithPrimaries) {
-                    const pNames = [traineeForCheck.primaryInstructor, traineeForCheck.secondaryInstructor, traineeForCheck.tertiaryInstructor].filter(Boolean);
-                    const primaries = qfis.filter(i => pNames.includes(i.name));
-                    const others = qfis.filter(i => !pNames.includes(i.name));
+                    const pNames = [traineeForCheck.primaryInstructor, traineeForCheck.secondaryInstructor].filter(Boolean);
+                    const primaries = availableQfis.filter(i => pNames.includes(i.name));
+                    const others = availableQfis.filter(i => !pNames.includes(i.name));
                     
                     primaries.sort((a, b) => (eventCounts.get(a.name)?.flightFtd || 0) - (eventCounts.get(b.name)?.flightFtd || 0));
                     others.sort((a, b) => (eventCounts.get(a.name)?.flightFtd || 0) - (eventCounts.get(b.name)?.flightFtd || 0));
                     
                     orderedQfis = [...primaries, ...others];
                 } else {
-                    orderedQfis = qfis.sort((a, b) => (eventCounts.get(a.name)?.flightFtd || 0) - (eventCounts.get(b.name)?.flightFtd || 0));
+                    orderedQfis = availableQfis.sort((a, b) => (eventCounts.get(a.name)?.flightFtd || 0) - (eventCounts.get(b.name)?.flightFtd || 0));
                 }
                 
                 candidates = [...simIps, ...orderedQfis];
@@ -896,11 +1041,13 @@ function generateDfpInternal(config: DfpConfig, setProgress: (progress: { messag
                     const isQFI = ip.role === 'QFI';
                     if (type === 'flight' && !isQFI) return false;
                     if (type === 'ground' || type === 'cpt') return true; 
+                    // NEW RULE: COMPLETE separation - NO day events for instructors with night events
+                    if (nextEventLists.bnf.length >= 2 && isPersonScheduledForNightEvents(ip.name)) return false;
                     return true;
                 });
 
                 if (programWithPrimaries) {
-                     const pNames = [traineeForCheck.primaryInstructor, traineeForCheck.secondaryInstructor, traineeForCheck.tertiaryInstructor].filter(Boolean);
+                     const pNames = [traineeForCheck.primaryInstructor, traineeForCheck.secondaryInstructor].filter(Boolean);
                      const primaries = qualified.filter(i => pNames.includes(i.name));
                      const others = qualified.filter(i => !pNames.includes(i.name));
                      
@@ -928,6 +1075,20 @@ function generateDfpInternal(config: DfpConfig, setProgress: (progress: { messag
                 
                 const ipCounts = eventCounts.get(ip.name)!;
                 
+                // CRITICAL FIX: Check soft duty limit for all instructor assignments
+                const proposedEvent = {
+                    ...proposedBookingWindow,
+                    instructor: ip.name,
+                    flightNumber: syllabusItemForCheck.id,
+                    type: syllabusItemForCheck.type
+                };
+                const currentDutyHours = calculateInstructorDutyHours(ip.name, proposedEvent);
+                
+                if (currentDutyHours > preferredDutyPeriod) {
+                    console.log(`SOFT LIMIT VIOLATION: ${ip.name} would exceed ${preferredDutyPeriod}hrs (current: ${currentDutyHours.toFixed(2)}hrs)`);
+                    continue;
+                }
+                
                 // NEW RULE: Ground event limits based on Flight/FTD activity
                 // If instructor has Flight or FTD events: max 1 ground event
                 // If instructor has no Flight or FTD events: max 4 ground events
@@ -938,19 +1099,19 @@ function generateDfpInternal(config: DfpConfig, setProgress: (progress: { messag
                 
                 if (ip.isExecutive) {
                     if (isNightPass && (eventTypeForCheck === 'flight' || eventTypeForCheck === 'ftd')) {
-                        if (ipCounts.flightFtd >= eventLimits.exec.maxTotal) continue;
+                        if ((ipCounts.flightFtd + ipCounts.ground + ipCounts.cpt) >= eventLimits.exec.maxTotal) continue;
                     } else {
                         if ((eventTypeForCheck === 'flight' || eventTypeForCheck === 'ftd') && ipCounts.flightFtd >= eventLimits.exec.maxFlightFtd) continue;
                     }
                     if (ipCounts.flightFtd + ipCounts.dutySup >= eventLimits.exec.maxDutySup) continue;
-                    if (ipCounts.flightFtd + ipCounts.dutySup >= eventLimits.exec.maxTotal) continue;
+                    if ((ipCounts.flightFtd + ipCounts.ground + ipCounts.cpt + ipCounts.dutySup) >= eventLimits.exec.maxTotal) continue;
                 } else if (ip.role === 'SIM IP') {
                     if ((eventTypeForCheck === 'flight' || eventTypeForCheck === 'ftd') && ipCounts.flightFtd >= eventLimits.simIp.maxFtd) continue;
-                    if (ipCounts.flightFtd >= eventLimits.simIp.maxTotal) continue;
+                    if ((ipCounts.flightFtd + ipCounts.ground + ipCounts.cpt) >= eventLimits.simIp.maxTotal) continue;
                 } else {
                     if ((eventTypeForCheck === 'flight' || eventTypeForCheck === 'ftd') && ipCounts.flightFtd >= eventLimits.instructor.maxFlightFtd) continue;
-                    if (ipCounts.flightFtd >= eventLimits.instructor.maxTotal) continue;
-                    // Check duty supervisor limit for Flying Supervisors
+                    if ((ipCounts.flightFtd + ipCounts.ground + ipCounts.cpt + ipCounts.dutySup) >= eventLimits.instructor.maxTotal) continue;
+                    // Check duty supervisor limit for Flying Supervisors (included in total events)
                     if (ip.isFlyingSupervisor && ipCounts.dutySup >= eventLimits.instructor.maxDutySup) continue;
                 }
 
@@ -1065,25 +1226,8 @@ function generateDfpInternal(config: DfpConfig, setProgress: (progress: { messag
         };
     };
 
-    buildOrder.forEach(item => {
-        scheduleList(item.list, item.type, item.isPlusOne, flyingStartTime, flyingEndTime, 'STBY', false);
-    });
-    
-    if(allowNightFlying && nextEventLists.bnf.length >= 2) {
-         setProgress({ message: 'Scheduling Night Flying...', percentage: 80 });
-         
-         const bnfWaveOneList = applyCoursePriority(nextEventLists.bnf);
-         
-         scheduleList(bnfWaveOneList, 'flight', false, commenceNightFlying, ceaseNightFlying, 'BNF-STBY', true);
-         
-         const bnfWaveTwoList = bnfWaveOneList.filter(trainee => {
-            const { plusOne } = traineeNextEventMap.get(trainee.fullName) || { plusOne: null };
-            return plusOne && plusOne.code.startsWith('BNF') && plusOne.type === 'Flight';
-         });
-         scheduleList(bnfWaveTwoList, 'flight', true, commenceNightFlying, ceaseNightFlying, 'BNF-STBY', true);
-    }
-
-    setProgress({ message: 'Scheduling Duty Supervisors...', percentage: 90 });
+    // NEW ALGORITHM: Schedule Duty Supervisors FIRST, before any other events
+    setProgress({ message: 'Scheduling Duty Supervisors...', percentage: 40 });
     
     // Duty Supervisor MUST cover entire Day flying window regardless of flight schedule
     const dayFlights = generatedEvents.filter(e => e.type === 'flight' && !e.resourceId.startsWith('STBY') && !e.resourceId.startsWith('BNF-STBY'));
@@ -1100,14 +1244,22 @@ function generateDfpInternal(config: DfpConfig, setProgress: (progress: { messag
     
     const lastFlightEndTime = dutySupEndTime;
     
-    const dutySupEligible = instructors.filter(i => i.isFlyingSupervisor || i.unavailability.some(u => u.reason === 'TMUF - Ground Duties only' && buildDate >= u.startDate && buildDate < u.endDate));
+    // NEW RULE: COMPLETE separation - NO day events for instructors with night events
+    const dutySupEligible = instructors.filter(i => 
+        (i.isFlyingSupervisor || i.unavailability.some(u => u.reason === 'TMUF - Ground Duties only' && buildDate >= u.startDate && buildDate < u.endDate)) &&
+        !(nextEventLists.bnf.length >= 2 && isPersonScheduledForNightEvents(i.name))
+    );
     const tmuffSupervisors = dutySupEligible.filter(i => i.unavailability.some(u => u.reason === 'TMUF - Ground Duties only' && buildDate >= u.startDate && buildDate < u.endDate));
-    const normalSupervisors = dutySupEligible.filter(i => !tmuffSupervisors.find(t => t.idNumber === i.idNumber)).sort((a,b) => (eventCounts.get(a.name)?.flightFtd || 0) - (eventCounts.get(b.name)?.flightFtd || 0));
-    const sortedSupervisors = [...tmuffSupervisors, ...normalSupervisors];
+    const normalSupervisors = dutySupEligible.filter(i => !tmuffSupervisors.find(t => t.idNumber === i.idNumber));
+    
+    // NEW ALGORITHM: Randomize supervisor selection instead of alphabetical/order-based
+    const shuffledNormalSupervisors = [...normalSupervisors].sort(() => 0.5 - Math.random());
+    const sortedSupervisors = [...tmuffSupervisors, ...shuffledNormalSupervisors];
 
     let currentSupTime = dutySupStartTime;
-    // Only schedule Duty Supervisors within the flying window and while flights are active
-    while (currentSupTime < lastFlightEndTime) {
+    // CRITICAL FIX: Schedule Duty Supervisors for the ENTIRE day window, not just when flights are active
+    console.log(`Duty Supervisor Allocation - Covering entire day window: ${dutySupStartTime} to ${dutySupEndTime}`);
+    while (currentSupTime < dutySupEndTime) {
         const isBlockCovered = generatedEvents.some(e => e.resourceId === 'Duty Sup' && currentSupTime >= e.startTime && currentSupTime < e.startTime + e.duration);
         if (isBlockCovered) {
             currentSupTime += 0.5;
@@ -1117,44 +1269,39 @@ function generateDfpInternal(config: DfpConfig, setProgress: (progress: { messag
         let bestSupervisor: Instructor | null = null;
         let maxDuration = 0;
 
-        for (const sup of sortedSupervisors) {
+        // NEW RULE: Prefer supervisors with 0 duty sup events, only use those with 1+ if no one else available
+        const supervisorsWithNoDutySup = sortedSupervisors.filter(s => eventCounts.get(s.name)!.dutySup === 0);
+        const supervisorsWithDutySup = sortedSupervisors.filter(s => eventCounts.get(s.name)!.dutySup > 0);
+        const prioritizedSupervisors = [...supervisorsWithNoDutySup, ...supervisorsWithDutySup];
+
+        for (const sup of prioritizedSupervisors) {
             const ipCounts = eventCounts.get(sup.name)!;
             const eventLimit = sup.isExecutive ? eventLimits.exec.maxFlightFtd + eventLimits.exec.maxDutySup : eventLimits.instructor.maxTotal;
             const dutySupEventCount = sup.isExecutive ? eventLimits.exec.maxDutySup : eventLimits.instructor.maxDutySup;
             const totalEventCount = sup.isExecutive ? eventLimits.exec.maxTotal : eventLimits.instructor.maxTotal;
 
-            if (ipCounts.dutySup >= dutySupEventCount || (ipCounts.flightFtd + ipCounts.dutySup) >= eventLimit) continue;
-            if ((ipCounts.flightFtd + ipCounts.dutySup) >= totalEventCount) continue;
+            // NEW ALGORITHM: Duty Supervisor counts toward total event limits (max 3)
+            if (ipCounts.dutySup >= dutySupEventCount) continue;
+            if ((ipCounts.flightFtd + ipCounts.ground + ipCounts.cpt + ipCounts.dutySup) >= totalEventCount) continue;
             
             if (isPersonStaticallyUnavailable(sup, currentSupTime, currentSupTime + 0.1, buildDate, 'duty_sup')) continue;
 
-            // Check soft duty limit - calculate total duty hours for the entire day including this potential duty supervisor assignment
+            // CRITICAL FIX: Use the new helper function to calculate duty hours
+            // Check soft duty limit before assigning any duty supervisor time
             const proposedDutySupEvent = {
                 startTime: currentSupTime,
-                duration: 0.1, // Minimum duration for calculation
+                duration: 2.0, // Standard 2-hour duty supervisor assignment
                 flightNumber: 'Duty Sup',
                 type: 'ground' as const
             };
-            const proposedEvents = [...generatedEvents, proposedDutySupEvent];
             
-            // Calculate total duty hours for the entire day (from first event to last event)
-            const instructorEventsForDay = proposedEvents.filter(e => getPersonnel(e).includes(sup.name));
-            if (instructorEventsForDay.length > 0) {
-                const bookingWindows = instructorEventsForDay
-                    .map(e => getEventBookingWindowForAlgo(e, syllabusDetails))
-                    .sort((a, b) => a.start - b.start);
-                
-                const dayStart = bookingWindows[0].start;
-                const dayEnd = bookingWindows[bookingWindows.length - 1].end;
-                const totalDutyHours = dayEnd - dayStart;
-                
-                console.log(`Duty Sup Check - ${sup.name}: Total Duty = ${totalDutyHours.toFixed(2)}hrs, Soft Limit = ${preferredDutyPeriod}hrs`);
-                
-                if (totalDutyHours > preferredDutyPeriod) {
-                    console.log(`Skipping ${sup.name} - would exceed soft limit`);
-                    // Skip this supervisor as it would exceed the soft duty limit
-                    continue;
-                }
+            const totalDutyHours = calculateInstructorDutyHours(sup.name, proposedDutySupEvent);
+            
+            console.log(`Duty Sup Check - ${sup.name}: Total Duty = ${totalDutyHours.toFixed(2)}hrs, Soft Limit = ${preferredDutyPeriod}hrs`);
+            
+            if (totalDutyHours > preferredDutyPeriod) {
+                console.log(`Skipping ${sup.name} - would exceed soft limit of ${preferredDutyPeriod}hrs`);
+                continue;
             }
             
             const hasOverlapAtStart = generatedEvents
@@ -1169,8 +1316,8 @@ function generateDfpInternal(config: DfpConfig, setProgress: (progress: { messag
             let potentialDuration = 0;
             const targetDuration = 2.0;
 
-            // Don't extend duty supervisor beyond last flight end time or soft duty limit
-            for (let t = currentSupTime; t < lastFlightEndTime; t += 0.25) {
+            // CRITICAL FIX: Don't extend duty supervisor beyond day window end or soft duty limit
+            for (let t = currentSupTime; t < dutySupEndTime; t += 0.25) {
                 if (potentialDuration >= targetDuration) break;
                 
                 const proposedEnd = t + 0.25;
@@ -1227,26 +1374,49 @@ function generateDfpInternal(config: DfpConfig, setProgress: (progress: { messag
                 color: 'bg-amber-500/50', flightType: 'Dual', locationType: 'Local', origin: school, destination: school
             });
             eventCounts.get(bestSupervisor.name)!.dutySup++;
+            console.log(`Duty Sup assigned: ${bestSupervisor.name} from ${currentSupTime} to ${currentSupTime + maxDuration}`);
             currentSupTime += maxDuration;
         } else {
+            // CRITICAL FIX: If no supervisor available, we MUST still fill the gap
+            // This prevents gaps in duty supervisor coverage
+            console.log(`WARNING: No Duty Supervisor available for ${currentSupTime} to ${currentSupTime + 0.5} - GAP in coverage!`);
             currentSupTime += 0.5;
         }
     }
 
-    // Duty Supervisor MUST cover entire Night flying window when night flying is enabled
-    if (allowNightFlying) {
+    // NEW ALGORITHM: After Duty Supervisors are allocated, now schedule other events
+    setProgress({ message: 'Scheduling Flight Events...', percentage: 50 });
+    buildOrder.forEach(item => {
+        scheduleList(item.list, item.type, item.isPlusOne, flyingStartTime, flyingEndTime, 'STBY', false);
+    });
+    
+    setProgress({ message: 'Scheduling Ground and CPT Events...', percentage: 60 });
+    // Schedule CPT and Ground events (these are in buildOrder but might need separate handling)
+    // Note: buildOrder already includes CPT and Ground events
+    
+    // NEW LOGIC: If there are 2+ trainees waiting for night flying, then night flying is programmed
+    setProgress({ message: 'Scheduling Night Flying...', percentage: 80 });
+    if(nextEventLists.bnf.length >= 2) {
+         const bnfWaveOneList = applyCoursePriority(nextEventLists.bnf);
+         
+         scheduleList(bnfWaveOneList, 'flight', false, commenceNightFlying, ceaseNightFlying, 'BNF-STBY', true);
+         
+         const bnfWaveTwoList = bnfWaveOneList.filter(trainee => {
+            const { plusOne } = traineeNextEventMap.get(trainee.fullName) || { plusOne: null };
+            return plusOne && plusOne.code.startsWith('BNF') && plusOne.type === 'Flight';
+         });
+         scheduleList(bnfWaveTwoList, 'flight', true, commenceNightFlying, ceaseNightFlying, 'BNF-STBY', true);
+    }
+
+    // Duty Supervisor MUST cover entire Night flying window ONLY when night flying is programmed (2+ BNF trainees)
+    if (nextEventLists.bnf.length >= 2) {
         const nightFlyingInstructorNames = new Set(Array.from(nightPairings.values()));
         const nightSupPool = dutySupEligible.filter(s => !nightFlyingInstructorNames.has(s.name));
         
-        // Find the best available supervisor for entire night window
+        // NEW ALGORITHM: Randomize night supervisor selection
         const availableNightSupervisors = nightSupPool.filter(sup => {
             return !isPersonStaticallyUnavailable(sup, commenceNightFlying, ceaseNightFlying, buildDate, 'duty_sup');
-        }).sort((a, b) => {
-            // Prefer supervisors with fewer duty assignments
-            const aCount = eventCounts.get(a.name)?.dutySup || 0;
-            const bCount = eventCounts.get(b.name)?.dutySup || 0;
-            return aCount - bCount;
-        });
+        }).sort(() => 0.5 - Math.random()); // Random selection instead of fewest assignments
 
         // Try to find a dedicated night supervisor first
         let nightDutySup = availableNightSupervisors.length > 0 ? availableNightSupervisors[0] : null;
@@ -1258,7 +1428,7 @@ function generateDfpInternal(config: DfpConfig, setProgress: (progress: { messag
             });
         }
 
-        // Always schedule Night Duty Sup if night flying is enabled and a supervisor is available
+        // Schedule Night Duty Sup only when night flying is programmed (2+ BNF trainees) and a supervisor is available
         if (nightDutySup) {
              generatedEvents.push({
                 id: uuidv4(), type: 'ground', instructor: nightDutySup.name,
@@ -1285,10 +1455,28 @@ const App: React.FC = () => {
         return `${h.toString().padStart(2, '0')}${m.toString().padStart(2, '0')}`;
     };
 
+    // Timezone offset state (in hours, e.g., +11 for AEDT)
+    const [timezoneOffset, setTimezoneOffset] = useState<number>(() => {
+        const saved = localStorage.getItem('timezoneOffset');
+        return saved ? parseFloat(saved) : 0;
+    });
+
+    // Helper function to get local date string with timezone offset
+    const getLocalDateString = (date: Date = new Date()): string => {
+        // Apply timezone offset
+        const offsetMs = timezoneOffset * 60 * 60 * 1000;
+        const adjustedDate = new Date(date.getTime() + offsetMs);
+        
+        const year = adjustedDate.getUTCFullYear();
+        const month = String(adjustedDate.getUTCMonth() + 1).padStart(2, '0');
+        const day = String(adjustedDate.getUTCDate()).padStart(2, '0');
+        return `${year}-${month}-${day}`;
+    };
+
     const [activeView, setActiveView] = useState<string>('Program Schedule');
     const [previousView, setPreviousView] = useState<string>('Program Schedule');
-    const [date, setDate] = useState<string>(new Date().toISOString().split('T')[0]);
-    const [events, setEvents] = useState<ScheduleEvent[]>([]);
+    const [date, setDate] = useState<string>(() => getLocalDateString());
+    const [events, setEvents] = useState<ScheduleEvent[]>(ESL_DATA.events);
     const [selectedEvent, setSelectedEvent] = useState<ScheduleEvent | null>(null);
     const [isEditingDefault, setIsEditingDefault] = useState(false);
     const [highlightedField, setHighlightedField] = useState<'startTime' | 'instructor' | 'student' | null>(null);
@@ -1304,6 +1492,33 @@ const App: React.FC = () => {
     const [instructorsData, setInstructorsData] = useState<Instructor[]>(ESL_DATA.instructors);
     const [archivedInstructorsData, setArchivedInstructorsData] = useState<Instructor[]>([]);
     const [traineesData, setTraineesData] = useState<Trainee[]>(ESL_DATA.trainees);
+    
+    // Current User State (for permission checking)
+    // Default to Joe Bloggs (Super Admin) - in production this would come from authentication
+    const [currentUserName, setCurrentUserName] = useState<string>('Bloggs, Joe');
+    const currentUser = instructorsData.find(inst => inst.name === currentUserName) || instructorsData[0];
+    const [currentUserId, setCurrentUserId] = useState<number>(currentUser?.idNumber || 1);
+    
+    // User change handler
+    const handleUserChange = (userName: string) => {
+        setCurrentUserName(userName);
+        const newUser = instructorsData.find(inst => inst.name === userName);
+        if (newUser) {
+            setCurrentUserId(newUser.idNumber);
+        }
+    };
+    // Find the highest permission level - prioritize Super Admin, then Admin, etc.
+    const getHighestPermission = (permissions?: string[]): 'Super Admin' | 'Admin' | 'Staff' | 'Trainee' | 'Ops' | 'Scheduler' | 'Course Supervisor' => {
+        if (!permissions || permissions.length === 0) return 'Staff';
+        if (permissions.includes('Super Admin')) return 'Super Admin';
+        if (permissions.includes('Admin')) return 'Admin';
+        if (permissions.includes('Scheduler')) return 'Scheduler';
+        if (permissions.includes('Course Supervisor')) return 'Course Supervisor';
+        if (permissions.includes('Ops')) return 'Ops';
+        if (permissions.includes('Staff')) return 'Staff';
+        return 'Trainee';
+    };
+    const currentUserPermission = getHighestPermission(currentUser?.permissions);
     const [scores, setScores] = useState<Map<string, Score[]>>(ESL_DATA.scores);
     const [pt051Assessments, setPt051Assessments] = useState<Map<string, Pt051Assessment>>(ESL_DATA.pt051Assessments);
     const [courses, setCourses] = useState<Course[]>(ESL_DATA.courses);
@@ -1317,7 +1532,7 @@ const App: React.FC = () => {
     // Event Limits State (Lifted from SettingsView)
     const [eventLimits, setEventLimits] = useState<EventLimits>({
         exec: { maxFlightFtd: 1, maxDutySup: 2, maxTotal: 2 },
-        instructor: { maxFlightFtd: 2, maxDutySup: 1, maxTotal: 2 },
+        instructor: { maxFlightFtd: 2, maxDutySup: 31, maxTotal: 3 },
         trainee: { maxFlightFtd: 1, maxTotal: 2 },
         simIp: { maxFtd: 2, maxTotal: 2 }
     });
@@ -1333,16 +1548,21 @@ const App: React.FC = () => {
     const [buildDfpDate, setBuildDfpDate] = useState<string>(() => {
         const tomorrow = new Date();
         tomorrow.setDate(tomorrow.getDate() + 1);
-        return tomorrow.toISOString().split('T')[0];
+        return getLocalDateString(tomorrow);
     });
-    const [availableAircraftCount, setAvailableAircraftCount] = useState(15);
+    const [availableAircraftCount, setAvailableAircraftCount] = useState(24);
+    const [availableFtdCount, setAvailableFtdCount] = useState(school === 'ESL' ? 5 : 4);
+    const [availableCptCount, setAvailableCptCount] = useState(4);
     const [flyingStartTime, setFlyingStartTime] = useState(8.0); // 08:00
     const [flyingEndTime, setFlyingEndTime] = useState(17.0); // 17:00
+    const [ftdStartTime, setFtdStartTime] = useState(8.0); // 08:00
+    const [ftdEndTime, setFtdEndTime] = useState(17.0); // 17:00
     const [allowNightFlying, setAllowNightFlying] = useState(false);
     const [commenceNightFlying, setCommenceNightFlying] = useState(18.5); // 18:30
     const [ceaseNightFlying, setCeaseNightFlying] = useState(23.5); // 23:30
     const [preferredDutyPeriod, setPreferredDutyPeriod] = useState(8);
     const [maxCrewDutyPeriod, setMaxCrewDutyPeriod] = useState(10);
+    const [maxDispatchPerHour, setMaxDispatchPerHour] = useState(8);
     const [flightTurnaround, setFlightTurnaround] = useState(1.2);
     const [ftdTurnaround, setFtdTurnaround] = useState(0.5);
     const [cptTurnaround, setCptTurnaround] = useState(0.5);
@@ -1442,8 +1662,8 @@ const App: React.FC = () => {
     
     const ftdCount = school === 'ESL' ? 5 : 4;
     const buildResources = useMemo(() => {
-        // PC-21 count is minimum 20, or matches availableAircraftCount if it exceeds 20
-        const pc21Count = Math.max(20, availableAircraftCount);
+        // PC-21 count is fixed at 24
+        const pc21Count = 24;
         
         // Check for deployment events that overlap with the current date
         let deploymentCount = 0;
@@ -1514,6 +1734,62 @@ const App: React.FC = () => {
         };
         init();
     }, []);
+    
+    // Sync PT-051s when navigating to MyDashboard (ensures dashboard is up to date)
+    useEffect(() => {
+        if (activeView === 'MyDashboard') {
+            syncPt051WithActiveDfp(publishedSchedules, pt051Assessments);
+        }
+    }, [activeView, publishedSchedules, pt051Assessments]);
+
+    // Sync priority events when SCT requests change
+    useEffect(() => {
+        if (activeView === 'Priorities' || activeView === 'ProgramData') {
+            syncPriorityEventsWithSctAndRemedial();
+        }
+    }, [sctFlights, sctFtds, activeView]);
+
+    // Sync priority events when remedial requests change
+    useEffect(() => {
+        if (activeView === 'Priorities' || activeView === 'ProgramData') {
+            syncPriorityEventsWithSctAndRemedial();
+        }
+    }, [remedialRequests, activeView]);
+
+    // Save timezone offset to localStorage
+    useEffect(() => {
+        localStorage.setItem('timezoneOffset', timezoneOffset.toString());
+    }, [timezoneOffset]);
+
+    // Update FTD available count based on school location
+    useEffect(() => {
+        setAvailableFtdCount(school === 'ESL' ? 5 : 4);
+    }, [school]);
+
+    // Auto-update buildDfpDate to tomorrow's date on mount and daily
+    useEffect(() => {
+        const updateBuildDate = () => {
+            const tomorrow = new Date();
+            tomorrow.setDate(tomorrow.getDate() + 1);
+            const tomorrowStr = getLocalDateString(tomorrow);
+            
+            // Only update if the date has actually changed
+            if (buildDfpDate !== tomorrowStr) {
+                console.log('📅 Updating build DFP date from', buildDfpDate, 'to', tomorrowStr);
+                setBuildDfpDate(tomorrowStr);
+            }
+        };
+
+        // Update immediately on mount
+        updateBuildDate();
+
+        // Set up interval to check and update at midnight
+        const checkInterval = setInterval(() => {
+            updateBuildDate();
+        }, 60000); // Check every minute
+
+        return () => clearInterval(checkInterval);
+    }, [timezoneOffset]); // Re-run when timezone changes
 
     const eventsForDate = useMemo(() => {
         // This is used for LOGIC (like conflict checks), not rendering.
@@ -1612,7 +1888,7 @@ const App: React.FC = () => {
     }, [buildDfpDate, nextDayBuildEvents, publishedSchedules]);
 
     useEffect(() => {
-        const todayStr = new Date().toISOString().split('T')[0];
+        const todayStr = getLocalDateString();
         const initialEvents = events.filter(e => e.date === todayStr);
         if (Object.keys(baselineSchedules).length === 0 && initialEvents.length > 0) {
              setBaselineSchedules({ [todayStr]: JSON.parse(JSON.stringify(initialEvents)) });
@@ -1887,7 +2163,7 @@ const App: React.FC = () => {
     }, []);
 
     const navigateToView = (view: string) => {
-        const today = new Date().toISOString().split('T')[0];
+        const today = getLocalDateString();
         const isDashboard = view === 'MyDashboard' || view === 'SupervisorDashboard';
         if (isDashboard && date !== today) {
             setDate(today);
@@ -1928,6 +2204,16 @@ const App: React.FC = () => {
     const handleOpenAddRemedialPackage = (trainee: Trainee) => {
         setSelectedTraineeForRemedial(trainee);
         setShowAddRemedialPackage(true);
+    };
+
+    const handleBuildDateChange = (direction: 'prev' | 'next') => {
+        const currentDate = new Date(buildDfpDate + 'T00:00:00Z');
+        if (direction === 'prev') {
+            currentDate.setUTCDate(currentDate.getUTCDate() - 1);
+        } else {
+            currentDate.setUTCDate(currentDate.getUTCDate() + 1);
+        }
+        setBuildDfpDate(getLocalDateString(currentDate));
     };
     
     const handleAddTrainee = useCallback((newTrainee: Trainee) => {
@@ -1970,7 +2256,7 @@ const App: React.FC = () => {
                     prerequisitesGround: [], prerequisitesFlying: [],
                     preFlightTime: type === 'Ground School' ? 0.25 : (type === 'FTD' ? 0.5 : 1.0),
                     postFlightTime: type === 'Ground School' ? 0 : (type === 'FTD' ? 0.5 : 0.5),
-                    location: '', methodOfDelivery: [], methodOfAssessment: [], resourcesPhysical: [], resourcesHuman: [], eventDetailsCommon: [], eventDetailsSortie: [],
+                    location: '', methodOfDelivery: [], methodOfAssessment: [], resourcesPhysical: [], resourcesHuman: [remEvent.instructor], eventDetailsCommon: [], eventDetailsSortie: [],
                 };
                 remedialPackageItems.push(newItem);
                 lastNewEventId = newItem.id;
@@ -2055,7 +2341,7 @@ const App: React.FC = () => {
         setPublishedSchedules({}); // Clear published schedules on school change
         
         // Reset baseline on school change to avoid stale comparisons
-        const todayStr = new Date().toISOString().split('T')[0];
+        const todayStr = getLocalDateString();
         setBaselineSchedules({ [todayStr]: JSON.parse(JSON.stringify(data.events.filter(e => e.date === todayStr))) });
     };
     
@@ -2063,7 +2349,7 @@ const App: React.FC = () => {
         const initialData = school === 'ESL' ? ESL_DATA : PEA_DATA;
         setEvents(initialData.events);
         setCourses(initialData.courses);
-        const todayStr = new Date().toISOString().split('T')[0];
+        const todayStr = getLocalDateString();
         setPublishedSchedules({ [todayStr]: initialData.events.filter(e => e.date === todayStr) });
     }, [school]);
 
@@ -2358,8 +2644,23 @@ const App: React.FC = () => {
                     });
                     
                     console.log('Updated publishedSchedules:', newSchedules);
+                    
                     return newSchedules;
                 });
+                
+                // NEW APPROACH: Trigger PT-051 sync after any Active DFP change
+                // Use functional setState to access the latest state
+                console.log('📋 Triggering PT-051 sync after Active DFP change...');
+                setTimeout(() => {
+                    console.log('⏰ Executing delayed PT-051 sync...');
+                    setPublishedSchedules(currentSchedules => {
+                        setPt051Assessments(currentAssessments => {
+                            syncPt051WithActiveDfp(currentSchedules, currentAssessments);
+                            return currentAssessments;
+                        });
+                        return currentSchedules;
+                    });
+                }, 500);
             }
         }
     
@@ -2489,6 +2790,20 @@ const App: React.FC = () => {
             });
         }
         
+        // NEW APPROACH: Trigger PT-051 sync after deletion (only for Active DFP)
+        if (!isNextDay) {
+            console.log('📋 Triggering PT-051 sync after event deletion...');
+            setTimeout(() => {
+                console.log('⏰ Executing delayed PT-051 sync after deletion...');
+                setPublishedSchedules(currentSchedules => {
+                    setPt051Assessments(currentAssessments => {
+                        syncPt051WithActiveDfp(currentSchedules, currentAssessments);
+                        return currentAssessments;
+                    });
+                    return currentSchedules;
+                });
+            }, 500);
+        }
            
            // Log the deletion to audit trail
            const pageName = isNextDay ? 'Next Day Build' : 'Program Schedule';
@@ -2499,6 +2814,329 @@ const App: React.FC = () => {
            
            logAudit(pageName, "Delete", description, changes);
         setSelectedEvent(null);
+    };
+    
+    // SCT & REMEDIAL AUTO-ADD SYSTEM
+    // Auto-adds HIGH priority SCT and Force Schedule remedial events to highest priority list
+    const syncPriorityEventsWithSctAndRemedial = () => {
+        console.log('\ud83d\udccb Starting sync of priority events with SCT and remedial requests...');
+        
+        let added = 0;
+        const newPriorityEvents = [...highestPriorityEvents];
+        
+        // 1. Auto-add HIGH priority SCT requests
+        const highPrioritySctFlights = sctFlights.filter(req => 
+            req.priority === 'High' && req.name.trim() !== '' && req.currency.trim() !== ''
+        );
+        const highPrioritySctFtds = sctFtds.filter(req => 
+            req.priority === 'High' && req.name.trim() !== '' && req.currency.trim() !== ''
+        );
+        
+        // Process SCT Flights
+        highPrioritySctFlights.forEach(sctReq => {
+            const existingEvent = newPriorityEvents.find(e => 
+                e.flightNumber === sctReq.event && 
+                (e.student === sctReq.name || e.pilot === sctReq.name)
+            );
+            
+            if (!existingEvent) {
+                const syllabusItem = syllabusDetails.find(s => s.code === sctReq.event);
+                const trainee = traineesData.find(t => t.fullName === sctReq.name);
+                const duration = syllabusItem?.duration || 1.5;
+                
+                const newEvent: ScheduleEvent = {
+                    id: `sct-flight-${sctReq.id}`,
+                    date: buildDfpDate,
+                    type: 'flight',
+                    instructor: '', // Will be assigned during scheduling
+                    student: sctReq.flightType === 'Dual' ? sctReq.name : '',
+                    pilot: sctReq.flightType === 'Solo' ? sctReq.name : '',
+                    flightNumber: sctReq.event,
+                    duration: duration,
+                    startTime: 8.0, // Default start time
+                    resourceId: '', // Will be assigned during scheduling
+                    color: 'bg-red-500/50', // Highlight as high priority SCT
+                    flightType: sctReq.flightType,
+                    locationType: 'Local',
+                    origin: school,
+                    destination: school,
+                    isTimeFixed: true,
+                    isSct: true
+                };
+                
+                newPriorityEvents.push(newEvent);
+                added++;
+                console.log('\u2705 Added HIGH priority SCT flight:', sctReq.event, 'for', sctReq.name);
+            }
+        });
+        
+        // Process SCT FTDs
+        highPrioritySctFtds.forEach(sctReq => {
+            const existingEvent = newPriorityEvents.find(e => 
+                e.flightNumber === sctReq.event && 
+                (e.student === sctReq.name || e.pilot === sctReq.name)
+            );
+            
+            if (!existingEvent) {
+                const syllabusItem = syllabusDetails.find(s => s.code === sctReq.event);
+                const trainee = traineesData.find(t => t.fullName === sctReq.name);
+                const duration = syllabusItem?.duration || 1.5;
+                
+                const newEvent: ScheduleEvent = {
+                    id: `sct-ftd-${sctReq.id}`,
+                    date: buildDfpDate,
+                    type: 'ftd',
+                    instructor: '', // Will be assigned during scheduling
+                    student: sctReq.name,
+                    flightNumber: sctReq.event,
+                    duration: duration,
+                    startTime: 8.0, // Default start time
+                    resourceId: '', // Will be assigned during scheduling
+                    color: 'bg-red-500/50', // Highlight as high priority SCT
+                    flightType: 'Dual',
+                    locationType: 'Local',
+                    origin: school,
+                    destination: school,
+                    isTimeFixed: true,
+                    isSct: true
+                };
+                
+                newPriorityEvents.push(newEvent);
+                added++;
+                console.log('\u2705 Added HIGH priority SCT FTD:', sctReq.event, 'for', sctReq.name);
+            }
+        });
+        
+        // 2. Auto-add Force Schedule remedial events
+        remedialRequests.forEach(remedialReq => {
+            if (remedialReq.forceSchedule) {
+                const existingEvent = newPriorityEvents.find(e => 
+                    e.flightNumber === remedialReq.eventCode && 
+                    e.isRemedial
+                );
+                
+                if (!existingEvent) {
+                    const syllabusItem = syllabusDetails.find(s => s.id === remedialReq.eventCode || s.code === remedialReq.eventCode);
+                    const trainee = traineesData.find(t => t.idNumber === remedialReq.traineeId);
+                    const duration = syllabus?.duration || 1.5;
+                    
+                    if (trainee && syllabusItem) {
+                        const newEvent: ScheduleEvent = {
+                            id: `remedial-${remedialReq.traineeId}-${remedialReq.eventCode}`,
+                            date: buildDfpDate,
+                            type: syllabusItem.type === 'FTD' ? 'ftd' : 
+                                  syllabusItem.type === 'Ground School' ? 'ground' : 
+                                  syllabusItem.type === 'Flight' ? 'flight' : 'flight',
+                            instructor: '', // Will be assigned during scheduling
+                            student: trainee.fullName,
+                            flightNumber: syllabusItem.code,
+                            duration: duration,
+                            startTime: 8.0, // Default start time
+                            resourceId: '', // Will be assigned during scheduling
+                            color: 'bg-orange-500/50', // Highlight as remedial
+                            flightType: syllabusItem.sortieType === 'Solo' ? 'Solo' : 'Dual',
+                            locationType: 'Local',
+                            origin: school,
+                            destination: school,
+                            isTimeFixed: true,
+                            isRemedial: true
+                        };
+                        
+                        newPriorityEvents.push(newEvent);
+                        added++;
+                        console.log('\u2705 Added Force Schedule remedial:', syllabusItem.code, 'for', trainee.fullName);
+                    }
+                }
+            }
+        });
+        
+        // Update state if changes were made
+        if (added > 0) {
+            setHighestPriorityEvents(newPriorityEvents);
+            console.log(`\ud83d\udcca Priority Events Sync Complete: Added ${added} auto-generated events`);
+        } else {
+            console.log('\u2705 No new priority events to add');
+        }
+    };
+
+    // NEW PT-051 SYNC SYSTEM
+    // Syncs PT-051 assessments with Active DFP events
+    const syncPt051WithActiveDfp = (currentPublishedSchedules?: Record<string, ScheduleEvent[]>, currentPt051Assessments?: Map<string, Pt051Assessment>) => {
+        // Use provided parameters or fall back to current state
+        const schedules = currentPublishedSchedules || publishedSchedules;
+        const assessments = currentPt051Assessments || pt051Assessments;
+        
+        console.log('🔄 Starting PT-051 sync with Active DFP...');
+        console.log('Published schedules keys:', Object.keys(schedules));
+        
+        // Get all events from Active DFP (published schedules only)
+        const activeDfpEvents: ScheduleEvent[] = [];
+        Object.values(schedules).forEach(scheduleEvents => {
+            activeDfpEvents.push(...scheduleEvents);
+        });
+        
+        console.log('Total events on Active DFP:', activeDfpEvents.length);
+        console.log('Current PT-051 count:', assessments.size);
+        console.log('Sample events:', activeDfpEvents.slice(0, 3).map(e => ({
+            id: e.id,
+            flightNumber: e.flightNumber,
+            date: e.date,
+            student: e.student,
+            pilot: e.pilot,
+            instructor: e.instructor
+        })));
+        
+        const newAssessments = new Map(assessments);
+        let created = 0;
+        let deleted = 0;
+        
+        // FORWARD CHECK: Create PT-051s for events that don't have them
+        activeDfpEvents.forEach(event => {
+            // Skip DUTY SUP events
+            const isDutySup = event?.flightNumber?.includes('Duty Sup');
+            
+            // Skip events on STBY line (both by flight number and resource allocation)
+            const isStbyFlightNumber = event?.flightNumber?.toUpperCase().includes('STBY');
+            const isStbyResource = event?.resourceId?.startsWith('STBY') || 
+                                   event?.resourceId?.startsWith('BNF-STBY');
+            
+            // Skip deployment events
+            const isDeployment = event?.type === 'deployment';
+            
+            // Include flight, FTD, ground, and CPT events for PT-051 creation
+            const isValidEventType = event?.type === 'flight' || 
+                                    event?.type === 'ftd' || 
+                                    event?.type === 'ground' || 
+                                    event?.type === 'cpt';
+            
+            if (isDutySup || isStbyFlightNumber || isStbyResource || isDeployment || !isValidEventType) {
+                console.log('⏭️ Skipping event:', {
+                    flightNumber: event?.flightNumber,
+                    type: event?.type,
+                    resourceId: event?.resourceId,
+                    date: event?.date,
+                    reason: isDutySup ? 'DUTY SUP' : 
+                           isStbyFlightNumber || isStbyResource ? 'STBY allocation' : 
+                           isDeployment ? 'Deployment' : 'Invalid event type'
+                });
+                return;
+            }
+            
+            // Get trainees on this event
+            const trainees: string[] = [];
+            if (event.student) trainees.push(event.student);
+            if (event.pilot && event.flightType === 'Solo') trainees.push(event.pilot);
+            if (event.attendees && Array.isArray(event.attendees)) {
+                trainees.push(...event.attendees);
+            }
+            
+            // Log event types being processed for PT-051 creation
+            if (trainees.length > 0) {
+                console.log(`📋 Processing ${event.type} event for PT-051:`, {
+                    flightNumber: event.flightNumber,
+                    type: event.type,
+                    date: event.date,
+                    trainees: trainees
+                });
+            }
+            
+            // For each trainee, check if PT-051 exists
+            trainees.forEach(traineeFullName => {
+                const assessmentKey = `${event.id}-${traineeFullName}`;
+                
+                // Check if PT-051 already exists for this event-trainee combination
+                const existingAssessment = Array.from(newAssessments.values()).find(
+                    a => a.eventId === event.id && a.traineeFullName === traineeFullName
+                );
+                
+                if (!existingAssessment) {
+                    // Create new PT-051
+                    const newAssessment: Pt051Assessment = {
+                        id: `pt051-${assessmentKey}`,
+                        traineeFullName: traineeFullName,
+                        eventId: event.id,
+                        flightNumber: event.flightNumber,
+                        date: event.date,
+                        instructorName: event.instructor || '',
+                        overallGrade: null,
+                        overallResult: null,
+                        dcoResult: null,
+                        overallComments: '',
+                        isCompleted: false,
+                        scores: ALL_ELEMENTS.map(element => ({
+                            element,
+                            grade: null,
+                            comment: ''
+                        }))
+                    };
+                    
+                    newAssessments.set(newAssessment.id, newAssessment);
+                    created++;
+                    console.log('✅ Created PT-051 for', traineeFullName, 'on', event.flightNumber, event.date);
+                }
+            });
+        });
+        
+        // UPDATE CHECK: Update existing PT-051s when event details change
+        let updated = 0;
+        newAssessments.forEach((assessment, assessmentId) => {
+            // Find the corresponding event for this assessment
+            const correspondingEvent = activeDfpEvents.find(e => e.id === assessment.eventId);
+            
+            if (correspondingEvent) {
+                // Check if any fields need updating
+                let needsUpdate = false;
+                const updates: Partial<Pt051Assessment> = {};
+                
+                if (assessment.instructorName !== (correspondingEvent.instructor || '')) {
+                    updates.instructorName = correspondingEvent.instructor || '';
+                    needsUpdate = true;
+                    console.log('📝 Instructor changed:', assessment.instructorName, '→', correspondingEvent.instructor);
+                }
+                
+                if (assessment.flightNumber !== correspondingEvent.flightNumber) {
+                    updates.flightNumber = correspondingEvent.flightNumber;
+                    needsUpdate = true;
+                    console.log('📝 Flight number changed:', assessment.flightNumber, '→', correspondingEvent.flightNumber);
+                }
+                
+                if (assessment.date !== correspondingEvent.date) {
+                    updates.date = correspondingEvent.date;
+                    needsUpdate = true;
+                    console.log('📝 Date changed:', assessment.date, '→', correspondingEvent.date);
+                }
+                
+                if (needsUpdate) {
+                    newAssessments.set(assessmentId, { ...assessment, ...updates });
+                    updated++;
+                    console.log('✏️ Updated PT-051 for', assessment.traineeFullName, 'on', assessment.flightNumber);
+                }
+            }
+        });
+        
+        // REVERSE CHECK: Delete PT-051s whose events no longer exist on Active DFP
+        const activeDfpEventIds = new Set(activeDfpEvents.map(e => e.id));
+        const assessmentsToDelete: string[] = [];
+        
+        newAssessments.forEach((assessment, assessmentId) => {
+            if (!activeDfpEventIds.has(assessment.eventId)) {
+                assessmentsToDelete.push(assessmentId);
+                console.log('🗑️ Deleting PT-051 for', assessment.traineeFullName, 'on', assessment.flightNumber, assessment.date, '(event no longer on Active DFP)');
+            }
+        });
+        
+        assessmentsToDelete.forEach(id => {
+            newAssessments.delete(id);
+            deleted++;
+        });
+        
+        // Update state if changes were made
+        if (created > 0 || deleted > 0 || updated > 0) {
+            setPt051Assessments(newAssessments);
+            console.log(`📊 PT-051 Sync Complete: Created ${created}, Updated ${updated}, Deleted ${deleted}`);
+        } else {
+            console.log('✅ PT-051s already in sync with Active DFP');
+        }
     };
     
     const handleUpdatePriorityEvent = (eventId: string, updates: Partial<ScheduleEvent>) => {
@@ -2547,7 +3185,7 @@ const App: React.FC = () => {
 
     const handleBuildDfp = () => {
         // Use robust string comparison to avoid timezone issues between Local and UTC dates
-        const todayStr = new Date().toISOString().split('T')[0];
+        const todayStr = getLocalDateString();
         
         // If the build date is today or in the past, show the warning
         if (buildDfpDate <= todayStr) {
@@ -2602,7 +3240,9 @@ const App: React.FC = () => {
 
         setTimeout(() => {
             try {
+                console.log('Starting DFP build process for', buildDfpDate);
                 const generated = generateDfpInternal(config, setDfpBuildProgress);
+                console.log('DFP build completed, generated', generated.length, 'events');
                 setNextDayBuildEvents(generated);
 
                 const notifications: string[] = [];
@@ -2649,12 +3289,28 @@ const App: React.FC = () => {
     };
 
     const handleConfirmPublish = () => {
+        // Close the confirmation flyout immediately
+        setShowPublishConfirm(false);
+        
         const newEventsForDate = nextDayBuildEvents.map(e => ({ ...e, date: buildDfpDate }));
         
         setPublishedSchedules((prev: Record<string, ScheduleEvent[]>) => ({
             ...prev,
             [buildDfpDate]: newEventsForDate
         }));
+        
+        // NEW APPROACH: Sync PT-051s with Active DFP after publish
+        console.log('📋 Triggering PT-051 sync after publish...');
+        setTimeout(() => {
+            console.log('⏰ Executing delayed PT-051 sync after publish...');
+            setPublishedSchedules(currentSchedules => {
+                setPt051Assessments(currentAssessments => {
+                    syncPt051WithActiveDfp(currentSchedules, currentAssessments);
+                    return currentAssessments;
+                });
+                return currentSchedules;
+            });
+        }, 500);
         
         // Snapshot the schedule as the baseline for change detection
         setBaselineSchedules((prev) => ({
@@ -2672,7 +3328,6 @@ const App: React.FC = () => {
            );
 
         setDate(buildDfpDate);
-        setShowPublishConfirm(false);
         setNextDayBuildEvents([]);
         setActiveView('Program Schedule');
         setSuccessMessage('DFP Successfully Published!');
@@ -2802,7 +3457,7 @@ updates.forEach(update => {
     
     const handleAuthorise = (eventId: string, notes: string, role: 'autho' | 'captain', isVerbal: boolean) => {
         const now = new Date().toISOString();
-        const authoSigner = "Bloggs, Joe"; // Mocked user for the supervisor
+        const authoSigner = currentUserName; // Current logged in user
         
         let wasFullyAuthed = false;
         let eventThatWasUpdated: ScheduleEvent | null = null;
@@ -3649,7 +4304,7 @@ updates.forEach(update => {
     }, [oraclePreviewEvent, oracleAnalysis, date, school, eventsForDate, nextDayBuildEvents, buildDfpDate, oracleContext, syllabusDetails]);
 
     const handleSelectMyProfile = () => {
-        const user = instructorsData.find(i => i.name === 'Bloggs, Joe');
+        const user = instructorsData.find(i => i.name === currentUserName);
         if (user) {
             setSelectedPersonForProfile(user);
             handleNavigation('Instructors');
@@ -3662,14 +4317,14 @@ updates.forEach(update => {
     };
 
     const handleSelectMyCurrency = () => {
-        const user = instructorsData.find(i => i.name === 'Bloggs, Joe');
+        const user = instructorsData.find(i => i.name === currentUserName);
         if (user) {
             handleNavigateToCurrency(user);
         }
     };
 
     const handleSelectMySct = () => {
-        const user = instructorsData.find(i => i.name === 'Bloggs, Joe'); // Mocked user
+        const user = instructorsData.find(i => i.name === currentUserName); // Current logged in user
         if (user) {
             setInstructorForSct(user);
             setShowSctRequest(true);
@@ -3691,7 +4346,7 @@ updates.forEach(update => {
                            resources={buildResources}
                            instructors={instructorsData.map(i => i.name)}
                            traineesData={traineesData}
-                           airframeCount={20}
+                           airframeCount={24}
                            standbyCount={4}
                            ftdCount={ftdCount}
                            cptCount={4}
@@ -3773,6 +4428,8 @@ updates.forEach(update => {
                     conflictingEventIds={nextDayPersonnelAndResourceConflictIds}
                     showValidation={showValidation}
                     onSelectInstructor={handleSelectInstructorFromSchedule}
+                    buildDfpDate={buildDfpDate}
+                    onDateChange={handleBuildDateChange}
                 />;
             case 'NextDayTraineeSchedule':
                 return <NextDayTraineeScheduleView
@@ -3789,6 +4446,8 @@ updates.forEach(update => {
                     conflictingEventIds={nextDayPersonnelAndResourceConflictIds}
                     showValidation={showValidation}
                     onSelectTrainee={handleSelectTraineeFromSchedule}
+                    buildDfpDate={buildDfpDate}
+                    onDateChange={handleBuildDateChange}
                 />;
             case 'CourseRoster':
                 return <CourseRosterView 
@@ -3834,18 +4493,55 @@ updates.forEach(update => {
                                     handleNavigation('ScoreDetail');
                                 }}
                                 onSelectPt051={(assessment: Pt051Assessment) => {
+                                    console.log('onSelectPt051 called with assessment:', assessment);
+                                    
+                                    // Log PT-051 view to audit trail
+                                    logAudit('Performance History', 'View', `Viewed PT-051 for ${assessment.traineeFullName} - Event: ${assessment.flightNumber} (${assessment.date})`);
+                                    
                                     // FIX: Add explicit type annotation for `a` as TypeScript was failing to infer it.
                                     const event = eventFromSchedules.find((a: ScheduleEvent) => a.id === assessment.eventId);
                                     if(event) {
+                                        console.log('Found event in schedules:', event);
                                         setEventForPt051(event);
                                         handleNavigation('PT051');
                                     } else {
                                         const eventFromBuild = nextDayBuildEvents.find(e => e.id === assessment.eventId);
                                         if (eventFromBuild) {
+                                            console.log('Found event in build:', eventFromBuild);
                                             setEventForPt051({ ...eventFromBuild, date: buildDfpDate });
                                             handleNavigation('PT051');
                                         } else {
-                                             alert('Could not find the original event for this assessment.');
+                                            console.log('Event not found, creating mock event for assessment');
+                                            // Create a mock event for the assessment
+                                            // Determine event type based on flight number
+                                            let eventType: 'flight' | 'ground' | 'cpt' = 'flight';
+                                            const flightNum = assessment.flightNumber || '';
+                                            
+                                            if (flightNum.includes('CPT') || flightNum.includes('Cpt')) {
+                                                eventType = 'cpt';
+                                            } else if (flightNum.includes('MB') || flightNum.includes('GS') || 
+                                                       flightNum.includes('Ground') || flightNum.includes('GROUND')) {
+                                                eventType = 'ground';
+                                            }
+                                            
+                                            const mockEvent: ScheduleEvent = {
+                                                id: assessment.eventId,
+                                                flightNumber: assessment.flightNumber,
+                                                date: assessment.date,
+                                                startTime: '08:00',
+                                                endTime: '09:00',
+                                                instructor: assessment.instructorName || 'Unknown',
+                                                student: assessment.traineeFullName,
+                                                syllabus: assessment.flightNumber,
+                                                aircraft: '',
+                                                type: eventType,
+                                                status: 'Scheduled',
+                                                notes: '',
+                                                crew: []
+                                            };
+                                            console.log('Created mock event:', mockEvent);
+                                            setEventForPt051(mockEvent);
+                                            handleNavigation('PT051');
                                         }
                                     }
                                 }}
@@ -3871,7 +4567,7 @@ updates.forEach(update => {
                             resources={buildResources}
                             instructors={instructorsData.map(i => i.name)}
                             traineesData={traineesData}
-                            airframeCount={20}
+                            airframeCount={24}
                             standbyCount={4}
                             ftdCount={ftdCount}
                             cptCount={4}
@@ -3900,17 +4596,25 @@ updates.forEach(update => {
                             onOracleMouseUp={handleOracleMouseUp}
                        />;
             case 'Priorities':
-                return <PrioritiesView 
+                return <PrioritiesViewWithMenu 
                     coursePriorities={coursePriorities}
                     onUpdatePriorities={setCoursePriorities}
                     coursePercentages={coursePercentages}
                     onUpdatePercentages={setCoursePercentages}
                     availableAircraftCount={availableAircraftCount}
                     onUpdateAircraftCount={setAvailableAircraftCount}
+                    availableFtdCount={availableFtdCount}
+                    onUpdateFtdCount={setAvailableFtdCount}
+                    availableCptCount={availableCptCount}
+                    onUpdateCptCount={setAvailableCptCount}
                     flyingStartTime={flyingStartTime}
                     onUpdateFlyingStartTime={setFlyingStartTime}
                     flyingEndTime={flyingEndTime}
                     onUpdateFlyingEndTime={setFlyingEndTime}
+                    ftdStartTime={ftdStartTime}
+                    onUpdateFtdStartTime={setFtdStartTime}
+                    ftdEndTime={ftdEndTime}
+                    onUpdateFtdEndTime={setFtdEndTime}
                     allowNightFlying={allowNightFlying}
                     onUpdateAllowNightFlying={setAllowNightFlying}
                     commenceNightFlying={commenceNightFlying}
@@ -3935,7 +4639,7 @@ updates.forEach(update => {
                           currency: '', 
                           currencyExpire: '', 
                           priority: 'Medium' as 'Medium',
-                          dateRequested: new Date().toISOString().split('T')[0]
+                          dateRequested: getLocalDateString()
                       };
                       if (type === 'flight') setSctFlights(prev => [...prev, newReq]);
                       else setSctFtds(prev => [...prev, newReq]);
@@ -3948,6 +4652,13 @@ updates.forEach(update => {
                       const updater = (prev: SctRequest[]) => prev.map(r => r.id === id ? { ...r, [field]: value } : r);
                       if (type === 'flight') setSctFlights(updater);
                       else setSctFtds(updater);
+                      
+                      // Trigger priority sync after a short delay to ensure state is updated
+                      setTimeout(() => {
+                        if (field === 'priority' && value === 'High') {
+                          syncPriorityEventsWithSctAndRemedial();
+                        }
+                      }, 100);
                     }}
                     syllabusDetails={syllabusDetails}
                     scores={scores}
@@ -3955,9 +4666,26 @@ updates.forEach(update => {
                     remedialRequests={remedialRequests}
                     onToggleRemedialRequest={(traineeId, eventCode) => {
                         setRemedialRequests(prev => {
-                            const exists = prev.some(r => r.traineeId === traineeId && r.eventCode === eventCode);
-                            if (exists) return prev.filter(r => !(r.traineeId === traineeId && r.eventCode === eventCode));
-                            return [...prev, { traineeId, eventCode }];
+                            const existing = prev.find(r => r.traineeId === traineeId && r.eventCode === eventCode);
+                            let newRequests;
+                            if (existing) {
+                                // Toggle the forceSchedule property
+                                newRequests = prev.map(r => 
+                                    r.traineeId === traineeId && r.eventCode === eventCode 
+                                        ? { ...r, forceSchedule: !r.forceSchedule }
+                                        : r
+                                );
+                            } else {
+                                // Create new request with forceSchedule set to true
+                                newRequests = [...prev, { traineeId, eventCode, forceSchedule: true }];
+                            }
+                            
+                            // Trigger priority sync after a short delay to ensure state is updated
+                            setTimeout(() => {
+                                syncPriorityEventsWithSctAndRemedial();
+                            }, 100);
+                            
+                            return newRequests;
                         });
                     }}
                     currencyNames={currencyNames}
@@ -3991,16 +4719,151 @@ updates.forEach(update => {
                             traineeLMPs={traineeLMPs}
                         />;
             case 'MyDashboard':
+                // Get all events from published schedules for PT-051 lookup
+                const allPublishedEvents: ScheduleEvent[] = [];
+                Object.values(publishedSchedules).forEach(scheduleEvents => {
+                    allPublishedEvents.push(...scheduleEvents);
+                });
+                
                 return <MyDashboard 
-                            userName="Joe Bloggs"
-                            userRank="FLTLT"
-                            events={eventsForDate.filter(e => e.instructor === 'Bloggs, Joe')}
+                            userName={currentUser?.name ? currentUser.name.split(', ').reverse().join(' ') : 'Joe Bloggs'}
+                            userRank={currentUser?.rank || 'FLTLT'}
+                            events={eventsForDate.filter(e => e.instructor === currentUserName)}
                             onSelectEvent={handleOpenModal}
                             onNavigate={handleNavigation}
                             onSelectMyProfile={handleSelectMyProfile}
                             onSelectMyCurrency={handleSelectMyCurrency}
                             onSelectMySct={handleSelectMySct}
                             sctRequests={[...sctFlights, ...sctFtds]}
+                            pt051Assessments={pt051Assessments}
+                            onSelectPt051={(assessment) => {
+                                console.log('🔍 Dashboard PT-051 clicked:', assessment);
+                                console.log('Looking for event ID:', assessment.eventId);
+                                console.log('Total events available:', allPublishedEvents.length);
+                                
+                                // Find the event associated with this PT-051
+                                const event = allPublishedEvents.find(e => e.id === assessment.eventId);
+                                console.log('Found event:', event);
+                                
+                                // Find the trainee
+                                const trainee = traineesData.find(t => t.fullName === assessment.traineeFullName);
+                                console.log('Found trainee:', trainee);
+                                
+                                if (event && trainee) {
+                                    console.log('✅ Setting event and trainee, navigating to PT051');
+                                    // Set state synchronously
+                                    setEventForPt051(event);
+                                    setSelectedTraineeForHateSheet(trainee);
+                                    // Use setTimeout to ensure state is set before navigation
+                                    setTimeout(() => {
+                                        console.log('🚀 Navigating to PT051 view');
+                                        handleNavigation('PT051');
+                                    }, 0);
+                                } else {
+                                    console.error('❌ Could not find event or trainee for PT-051:', {
+                                        assessment,
+                                        eventFound: !!event,
+                                        traineeFound: !!trainee,
+                                        searchingForEventId: assessment.eventId,
+                                        availableEventIds: allPublishedEvents.map(e => e.id).slice(0, 10),
+                                        availableTrainees: traineesData.map(t => t.fullName).slice(0, 10),
+                                        eventsForSameFlightNumber: allPublishedEvents.filter(e => e.flightNumber === assessment.flightNumber).map(e => ({id: e.id, date: e.date, instructor: e.instructor}))
+                                    });
+                                    
+                                    // Try to find event by flight number and date as fallback
+                                    console.log('🔄 Attempting fallback search...');
+                                    console.log('Searching for:', {
+                                        flightNumber: assessment.flightNumber,
+                                        date: assessment.date,
+                                        instructor: assessment.instructorName
+                                    });
+                                    
+                                    const fallbackEvent = allPublishedEvents.find(e => 
+                                        e.flightNumber === assessment.flightNumber && 
+                                        e.date === assessment.date &&
+                                        e.instructor === assessment.instructorName
+                                    );
+                                    
+                                    console.log('Fallback result:', fallbackEvent);
+                                    
+                                    if (fallbackEvent && trainee) {
+                                        console.log('✅ Found event using fallback (flight number + date + instructor):', fallbackEvent);
+                                        setEventForPt051(fallbackEvent);
+                                        setSelectedTraineeForHateSheet(trainee);
+                                        setTimeout(() => {
+                                            console.log('🚀 Navigating to PT051 view (fallback)');
+                                            handleNavigation('PT051');
+                                        }, 0);
+                                    } else {
+                                        console.error('❌ Primary fallback failed', {
+                                            fallbackEventFound: !!fallbackEvent,
+                                            traineeFound: !!trainee,
+                                            matchingFlightNumbers: allPublishedEvents.filter(e => e.flightNumber === assessment.flightNumber).length,
+                                            matchingDates: allPublishedEvents.filter(e => e.date === assessment.date).length,
+                                            matchingInstructors: allPublishedEvents.filter(e => e.instructor === assessment.instructorName).length
+                                        });
+                                        
+                                        // Try secondary fallback: just flight number and instructor (ignore date)
+                                        console.log('🔄 Attempting secondary fallback (flight number + instructor only)...');
+                                        const secondaryFallbackEvent = allPublishedEvents.find(e => 
+                                            e.flightNumber === assessment.flightNumber && 
+                                            e.instructor === assessment.instructorName
+                                        );
+                                        
+                                        if (secondaryFallbackEvent && trainee) {
+                                            console.log('✅ Found event using secondary fallback:', secondaryFallbackEvent);
+                                            console.warn('⚠️ Note: Event date may differ from PT-051 date');
+                                            setEventForPt051(secondaryFallbackEvent);
+                                            setSelectedTraineeForHateSheet(trainee);
+                                            setTimeout(() => {
+                                                console.log('🚀 Navigating to PT051 view (secondary fallback)');
+                                                handleNavigation('PT051');
+                                            }, 0);
+                                        } else {
+                                            console.error('❌ All fallback attempts failed - cannot open PT-051');
+                                            // Create mock event as last resort
+                                            console.log('🔧 Creating mock event as last resort...');
+                                            
+                                            // Determine event type based on flight number
+                                            let eventType: 'flight' | 'ground' | 'cpt' = 'flight';
+                                            const flightNum = assessment.flightNumber || '';
+                                            
+                                            if (flightNum.includes('CPT') || flightNum.includes('Cpt')) {
+                                                eventType = 'cpt';
+                                            } else if (flightNum.includes('MB') || flightNum.includes('GS') || 
+                                                       flightNum.includes('Ground') || flightNum.includes('GROUND')) {
+                                                eventType = 'ground';
+                                            }
+                                            
+                                            const mockEvent: ScheduleEvent = {
+                                                id: assessment.eventId,
+                                                flightNumber: assessment.flightNumber,
+                                                date: assessment.date,
+                                                startTime: '08:00',
+                                                endTime: '09:00',
+                                                instructor: assessment.instructorName || 'Unknown',
+                                                student: assessment.traineeFullName,
+                                                syllabus: assessment.flightNumber,
+                                                aircraft: '',
+                                                type: eventType,
+                                                status: 'Scheduled',
+                                                notes: '',
+                                                crew: []
+                                            };
+                                            
+                                            if (trainee) {
+                                                console.log('✅ Created mock event:', mockEvent);
+                                                setEventForPt051(mockEvent);
+                                                setSelectedTraineeForHateSheet(trainee);
+                                                setTimeout(() => {
+                                                    console.log('🚀 Navigating to PT051 view (mock event)');
+                                                    handleNavigation('PT051');
+                                                }, 0);
+                                            }
+                                        }
+                                    }
+                                }
+                            }}
                         />;
             case 'SupervisorDashboard':
                 return <SupervisorDashboard
@@ -4104,7 +4967,7 @@ updates.forEach(update => {
                 }
                 return null;
             case 'Settings':
-                return <SettingsView 
+                return <SettingsViewWithMenu 
                     locations={locations}
                     onUpdateLocations={setLocations}
                     units={units}
@@ -4140,6 +5003,11 @@ updates.forEach(update => {
                     onUpdateFtdTurnaround={setFtdTurnaround}
                     cptTurnaround={cptTurnaround}
                     onUpdateCptTurnaround={setCptTurnaround}
+                    currentUserPermission={currentUserPermission}
+                    maxDispatchPerHour={maxDispatchPerHour}
+                    onUpdateMaxDispatchPerHour={setMaxDispatchPerHour}
+                    timezoneOffset={timezoneOffset}
+                    onUpdateTimezoneOffset={setTimezoneOffset}
                 />;
             case 'CurrencyBuilder':
                 return <CurrencyBuilderView 
@@ -4150,8 +5018,27 @@ updates.forEach(update => {
                             onDelete={handleDeleteCurrency}
                         />;
             case 'PT051':
+                console.log('🎯 PT051 case triggered');
+                console.log('eventForPt051:', eventForPt051);
+                console.log('selectedTraineeForHateSheet:', selectedTraineeForHateSheet);
+                
                 if (eventForPt051 && selectedTraineeForHateSheet) {
-                    const existingAssessment = pt051Assessments.get(eventForPt051.id);
+                    // Find the PT-051 for this event and trainee combination
+                    const assessmentKey = `pt051-${eventForPt051.id}-${selectedTraineeForHateSheet.fullName}`;
+                    console.log('Looking for assessment with key:', assessmentKey);
+                    console.log('Available assessment keys:', Array.from(pt051Assessments.keys()));
+                    
+                    let existingAssessment = pt051Assessments.get(assessmentKey);
+                    console.log('Direct lookup result:', existingAssessment);
+                    
+                    // Fallback: search by eventId and traineeFullName if key lookup fails
+                    if (!existingAssessment) {
+                        console.log('Direct lookup failed, trying fallback search...');
+                        existingAssessment = Array.from(pt051Assessments.values()).find(
+                            a => a.eventId === eventForPt051.id && a.traineeFullName === selectedTraineeForHateSheet.fullName
+                        );
+                        console.log('Fallback search result:', existingAssessment);
+                    }
                     return <PT051View 
                         trainee={selectedTraineeForHateSheet}
                         event={eventForPt051}
@@ -4160,9 +5047,28 @@ updates.forEach(update => {
                             handleNavigation('HateSheet');
                         }}
                         onSave={(assessment, isAutoSave) => {
-                            setPt051Assessments(prev => new Map(prev).set(assessment.eventId, assessment));
+                            // Mark assessment as completed when saved (not auto-save)
+                            const updatedAssessment = {
+                                ...assessment,
+                                isCompleted: !isAutoSave ? true : assessment.isCompleted
+                            };
+                            
+                            // Save using the correct key format: pt051-${eventId}-${traineeFullName}
+                            const saveKey = `pt051-${eventForPt051.id}-${selectedTraineeForHateSheet.fullName}`;
+                            setPt051Assessments(prev => new Map(prev).set(saveKey, updatedAssessment));
+                            
                             if (!isAutoSave) {
                                 setSuccessMessage('PT-051 Assessment Saved!');
+                                
+                                // Log PT-051 modification to audit trail
+                                const changes = [
+                                    assessment.overallGrade ? `Overall Grade: ${assessment.overallGrade}` : null,
+                                    assessment.overallResult ? `Overall Result: ${assessment.overallResult}` : null,
+                                    assessment.dcoResult ? `DCO Result: ${assessment.dcoResult}` : null,
+                                    assessment.overallComments ? `Comments: ${assessment.overallComments.substring(0, 50)}...` : null
+                                ].filter(Boolean).join(', ');
+                                
+                                logAudit('Performance History', 'Edit', `Modified PT-051 for ${assessment.traineeFullName} - Event: ${assessment.flightNumber} (${assessment.date})`, changes);
                             }
                         }}
                         instructors={instructorsData}
@@ -4174,7 +5080,22 @@ updates.forEach(update => {
                         phraseBank={phraseBank} // Pass phraseBank prop
                     />;
                 }
-                return <div>Error: Trainee or Event context not set for PT-051 View.</div>;
+                console.error('❌ PT051 View Error - Missing context:', {
+                    eventForPt051,
+                    selectedTraineeForHateSheet,
+                    view
+                });
+                return <div className="p-8 bg-gray-900 text-white">
+                    <h2 className="text-2xl font-bold text-red-500 mb-4">Error: PT-051 View Context Missing</h2>
+                    <p className="mb-2">Trainee: {selectedTraineeForHateSheet ? '✅ Set' : '❌ Not Set'}</p>
+                    <p className="mb-2">Event: {eventForPt051 ? '✅ Set' : '❌ Not Set'}</p>
+                    <button 
+                        onClick={() => handleNavigation('MyDashboard')}
+                        className="mt-4 px-4 py-2 bg-sky-600 text-white rounded-md hover:bg-sky-700"
+                    >
+                        Back to Dashboard
+                    </button>
+                </div>;
             case 'PostFlight':
                 if (eventForPostFlight) {
                     return <PostFlightView 
@@ -4240,6 +5161,15 @@ updates.forEach(update => {
                 onBuildDfpClick={handleBuildDfp}
                 isSupervisor={true}
                 onPublish={handlePublish}
+                currentUserName={currentUserName}
+                currentUserRank={currentUser?.rank || 'FLTLT'}
+                instructorsList={instructorsData.map(inst => ({
+                    name: inst.name,
+                    rank: inst.rank,
+                    unit: inst.unit,
+                    pin: inst.pin || '1111'
+                }))}
+                onUserChange={handleUserChange}
             />
             <div className="flex-1 flex flex-col overflow-hidden">
                 {activeView !== 'PostFlight' && <Header
@@ -4259,6 +5189,7 @@ updates.forEach(update => {
                     setIsMultiSelectMode={handleSetIsMultiSelectMode}
                     isOracleMode={isOracleMode}
                     onToggleOracleMode={handleToggleOracleMode}
+                    
                 />}
                 {renderActiveView()}
             </div>
@@ -4295,6 +5226,10 @@ updates.forEach(update => {
                     onOpenPt051={(trainee) => {
                         setEventForPt051(selectedEvent);
                         setSelectedTraineeForHateSheet(trainee);
+                        
+                        // Log PT-051 view to audit trail from Flight Detail
+                        logAudit('Flight Detail', 'View', `Viewed PT-051 for ${trainee.fullName} - Event: ${selectedEvent.flightNumber} (${selectedEvent.date})`);
+                        
                         handleNavigation('PT051');
                     }}
                     onOpenAuth={(e) => { setEventForAuth(e); setShowAuthFlyout(true); }}
@@ -4303,11 +5238,28 @@ updates.forEach(update => {
                         handleNavigation('PostFlight');
                         setSelectedEvent(null);
                     }}
+                    onScoresCreated={(newScores) => {
+                        console.log('App.tsx: onScoresCreated called with:', newScores);
+                        // Add the new scores to the existing scores map
+                        const updatedScores = new Map(scores);
+                        newScores.forEach(score => {
+                            console.log('Adding score for trainee:', score.traineeName);
+                            const traineeScores = updatedScores.get(score.traineeName) || [];
+                            traineeScores.push(score);
+                            updatedScores.set(score.traineeName, traineeScores);
+                        });
+                        console.log('Updated scores map:', updatedScores);
+                        setScores(updatedScores);
+                        console.log('Scores state updated successfully');
+                    }}
                     isConflict={unavailabilityConflicts.has(selectedEvent.id) || (['NextDayBuild', 'Priorities', 'ProgramData'].includes(activeView) ? nextDayPersonnelAndResourceConflictIds : personnelAndResourceConflictIds).has(selectedEvent.id)}
                     onNeoClick={handleNeoClick}
                     oracleContextForModal={oracleContextForModal}
                     sctRequests={[...sctFlights, ...sctFtds]}
                     sctEvents={sctEvents}
+                    publishedSchedules={publishedSchedules}
+                    nextDayBuildEvents={nextDayBuildEvents}
+                    activeView={activeView}
                 />
             )}
             
@@ -4487,6 +5439,24 @@ updates.forEach(update => {
                     instructors={instructorsData}
                     trainees={traineesData}
                     events={eventsForDate}
+                />
+            )}
+            {showSctRequest && instructorForSct && (
+                <SctRequestFlyout
+                    instructor={instructorForSct}
+                    onClose={() => setShowSctRequest(false)}
+                    onSave={(request) => {
+                        // Add the SCT request to the appropriate list
+                        if (request.event.includes('FTD')) {
+                            setSctFtds(prev => [...prev, request]);
+                        } else {
+                            setSctFlights(prev => [...prev, request]);
+                        }
+                        setShowSctRequest(false);
+                        // Show success message
+                        setSuccessMessage(`SCT request submitted for ${instructorForSct.name}`);
+                    }}
+                    currencyNames={['Instrument', 'Night', 'Multi-Engine', 'Formation']}
                 />
             )}
         </div>

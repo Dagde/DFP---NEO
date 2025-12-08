@@ -398,12 +398,71 @@ const findAvailableArea = (
     return null; // No available areas
 };
 
+/**
+ * Get Effective Last Completed Event (ELCE) from yesterday's DFP
+ * 
+ * ELCE Logic: A trainee may have flown an event yesterday that finished successfully,
+ * but the paperwork (PT-051) has not been entered yet. When building tomorrow's program,
+ * the scheduler looks at yesterday's DFP and treats completed events as the trainee's
+ * "Effective Last Completed Event" to ensure correct Next Event determination.
+ * 
+ * Example: Trainee flew BGF2 yesterday at 1100. PT-051 not entered yet, so system
+ * shows last completed as BGF1. ELCE logic finds BGF2 in yesterday's DFP (finished,
+ * not cancelled, not unsuccessful) and uses it to determine Next Event = BGF3.
+ */
+const getEffectiveLastCompletedEvent = (
+    traineeName: string,
+    publishedSchedules: Record<string, ScheduleEvent[]>,
+    buildDate: string
+): string | null => {
+    // Calculate yesterday's date
+    const buildDateObj = new Date(buildDate + 'T00:00:00Z');
+    buildDateObj.setDate(buildDateObj.getDate() - 1);
+    const yesterdayStr = buildDateObj.toISOString().split('T')[0];
+    
+    // Get yesterday's DFP
+    const yesterdayDfp = publishedSchedules[yesterdayStr] || [];
+    
+    if (yesterdayDfp.length === 0) {
+        return null;
+    }
+    
+    // Find all events for this trainee from yesterday's DFP
+    const traineeEvents = yesterdayDfp.filter(e => 
+        e.student === traineeName || e.attendees?.includes(traineeName)
+    );
+    
+    if (traineeEvents.length === 0) {
+        return null;
+    }
+    
+    // Filter for events that were not cancelled or marked unsuccessful
+    const completedEvents = traineeEvents.filter(e => {
+        const notCancelled = !e.isCancelled;
+        const notUnsuccessful = !e.isUnsuccessful;
+        return notCancelled && notUnsuccessful;
+    });
+    
+    if (completedEvents.length === 0) {
+        return null;
+    }
+    
+    // Return the last completed event code (latest by start time)
+    const lastEvent = completedEvents.sort((a, b) => b.startTime - a.startTime)[0];
+    
+    console.log(`✓ ELCE for ${traineeName}: ${lastEvent.flightNumber} (completed ${yesterdayStr})`);
+    
+    return lastEvent.flightNumber;
+};
+
 // Centralized logic for determining a trainee's next event(s)
 const computeNextEventsForTrainee = (
     trainee: Trainee,
     traineeLMPs: Map<string, SyllabusItemDetail[]>,
     scores: Map<string, Score[]>,
-    masterSyllabus: SyllabusItemDetail[] // Added fallback
+    masterSyllabus: SyllabusItemDetail[], // Added fallback
+    publishedSchedules?: Record<string, ScheduleEvent[]>, // NEW: Optional for ELCE
+    buildDate?: string // NEW: Optional for ELCE
 ): { next: SyllabusItemDetail | null, plusOne: SyllabusItemDetail | null } => {
     // Check individual LMP first, then fallback to master syllabus
     const individualLMP = traineeLMPs.get(trainee.fullName) || masterSyllabus;
@@ -414,6 +473,14 @@ const computeNextEventsForTrainee = (
     
     const traineeScores = scores.get(trainee.fullName) || [];
     const completedEventIds = new Set(traineeScores.map(s => s.event));
+    
+    // NEW: Check for ELCE - events completed yesterday but not yet in PT-051
+    if (publishedSchedules && buildDate) {
+        const elce = getEffectiveLastCompletedEvent(trainee.fullName, publishedSchedules, buildDate);
+        if (elce) {
+            completedEventIds.add(elce);
+        }
+    }
 
     let nextEvt: SyllabusItemDetail | null = null;
     let plusOneEvt: SyllabusItemDetail | null = null;
@@ -492,7 +559,11 @@ interface PlannedEvent {
 }
 
 
-function generateDfpInternal(config: DfpConfig, setProgress: (progress: { message: string, percentage: number }) => void): Omit<ScheduleEvent, 'date'>[] {
+function generateDfpInternal(
+    config: DfpConfig, 
+    setProgress: (progress: { message: string, percentage: number }) => void,
+    publishedSchedules: Record<string, ScheduleEvent[]>
+): Omit<ScheduleEvent, 'date'>[] {
     const { 
         instructors: originalInstructors, trainees, syllabus: syllabusDetails, scores, 
         coursePriorities, coursePercentages, availableAircraftCount, ftdCount,
@@ -617,7 +688,7 @@ function generateDfpInternal(config: DfpConfig, setProgress: (progress: { messag
     const traineeNextEventMap = new Map<string, { next: SyllabusItemDetail | null, plusOne: SyllabusItemDetail | null }>();
 
     activeTrainees.forEach(trainee => {
-        const nextEvents = computeNextEventsForTrainee(trainee, traineeLMPs, scores, syllabusDetails);
+        const nextEvents = computeNextEventsForTrainee(trainee, traineeLMPs, scores, syllabusDetails, publishedSchedules, buildDate);
         traineeNextEventMap.set(trainee.fullName, nextEvents);
     });
 
@@ -3168,7 +3239,7 @@ const App: React.FC = () => {
         let bnfTraineeCount = 0;
 
         activeTrainees.forEach(trainee => {
-            const { next } = computeNextEventsForTrainee(trainee, traineeLMPs, scores, syllabusDetails);
+            const { next } = computeNextEventsForTrainee(trainee, traineeLMPs, scores, syllabusDetails, publishedSchedules, buildDfpDate);
             if (next && next.code.startsWith('BNF') && next.type === 'Flight') {
                 bnfTraineeCount++;
             }
@@ -3241,7 +3312,7 @@ const App: React.FC = () => {
         setTimeout(() => {
             try {
                 console.log('Starting DFP build process for', buildDfpDate);
-                const generated = generateDfpInternal(config, setDfpBuildProgress);
+                const generated = generateDfpInternal(config, setDfpBuildProgress, publishedSchedules);
                 console.log('DFP build completed, generated', generated.length, 'events');
                 setNextDayBuildEvents(generated);
 
@@ -3628,7 +3699,7 @@ updates.forEach(update => {
     
         for (const trainee of otherTrainees) {
             // 1. Check if their next event matches
-            const nextEvents = computeNextEventsForTrainee(trainee, traineeLMPs, scores, syllabusDetails);
+            const nextEvents = computeNextEventsForTrainee(trainee, traineeLMPs, scores, syllabusDetails, publishedSchedules, buildDfpDate);
             if (nextEvents.next?.id !== conflictedSyllabusId) {
                 continue;
             }
@@ -4155,7 +4226,7 @@ updates.forEach(update => {
             const events = currentEvents.filter(e => getPersonnel(e).includes(trainee.fullName));
             const hasFtd = events.some(e => e.type === 'ftd');
             const hasFlight = events.some(e => e.type === 'flight');
-            const nextSyllabusEvent = computeNextEventsForTrainee(trainee, traineeLMPs, scores, syllabusDetails).next;
+            const nextSyllabusEvent = computeNextEventsForTrainee(trainee, traineeLMPs, scores, syllabusDetails, publishedSchedules, buildDfpDate).next;
             
             const isEligible = !(hasFtd && hasFlight) && nextSyllabusEvent?.type === 'Flight';
 
