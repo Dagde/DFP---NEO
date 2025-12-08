@@ -787,20 +787,10 @@ function generateDfpInternal(
     };
     
     // NEW RULE: Filter out BNF trainees from day event lists (complete separation)
+    // NEW RULE: COMPLETE separation - NO day events for BNF trainees when night flying is scheduled
     const bnfTraineeNames = new Set(nextEventLists.bnf.map(t => t.fullName));
     const filterOutBnfTrainees = (list: Trainee[]) => 
         nextEventLists.bnf.length >= 2 ? list.filter(t => !bnfTraineeNames.has(t.fullName)) : list;
-
-    const buildOrder: { list: Trainee[]; type: 'flight' | 'ftd' | 'cpt' | 'ground'; isPlusOne: boolean }[] = [
-        { list: applyCoursePriority(filterOutBnfTrainees(nextEventLists.flight)), type: 'flight', isPlusOne: false },
-        { list: applyCoursePriority(filterOutBnfTrainees(nextPlusOneLists.flight)), type: 'flight', isPlusOne: true },
-        { list: applyCoursePriority(filterOutBnfTrainees(nextEventLists.ftd)), type: 'ftd', isPlusOne: false },
-        { list: applyCoursePriority(filterOutBnfTrainees(nextPlusOneLists.ftd)), type: 'ftd', isPlusOne: true },
-        { list: applyCoursePriority(filterOutBnfTrainees(nextEventLists.cpt)), type: 'cpt', isPlusOne: false },
-        { list: applyCoursePriority(filterOutBnfTrainees(nextPlusOneLists.cpt)), type: 'cpt', isPlusOne: true },
-        { list: applyCoursePriority(filterOutBnfTrainees(nextEventLists.ground)), type: 'ground', isPlusOne: false },
-        { list: applyCoursePriority(filterOutBnfTrainees(nextPlusOneLists.ground)), type: 'ground', isPlusOne: true },
-    ];
     
     const nightPairings = new Map<string, string>();
     let instructors = [...originalInstructors.map(i => ({...i, unavailability: [...(i.unavailability || [])]}))]; 
@@ -1455,39 +1445,16 @@ function generateDfpInternal(
         }
     }
 
-    // NEW ALGORITHM: After Duty Supervisors are allocated, now schedule other events
-    setProgress({ message: 'Scheduling Flight Events...', percentage: 50 });
-    buildOrder.forEach(item => {
-        scheduleList(item.list, item.type, item.isPlusOne, flyingStartTime, flyingEndTime, 'STBY', false);
-    });
-    
-    setProgress({ message: 'Scheduling Ground and CPT Events...', percentage: 60 });
-    // Schedule CPT and Ground events (these are in buildOrder but might need separate handling)
-    // Note: buildOrder already includes CPT and Ground events
-    
-    // NEW LOGIC: If there are 2+ trainees waiting for night flying, then night flying is programmed
-    setProgress({ message: 'Scheduling Night Flying...', percentage: 80 });
-    if(nextEventLists.bnf.length >= 2) {
-         const bnfWaveOneList = applyCoursePriority(nextEventLists.bnf);
-         
-         scheduleList(bnfWaveOneList, 'flight', false, commenceNightFlying, ceaseNightFlying, 'BNF-STBY', true);
-         
-         const bnfWaveTwoList = bnfWaveOneList.filter(trainee => {
-            const { plusOne } = traineeNextEventMap.get(trainee.fullName) || { plusOne: null };
-            return plusOne && plusOne.code.startsWith('BNF') && plusOne.type === 'Flight';
-         });
-         scheduleList(bnfWaveTwoList, 'flight', true, commenceNightFlying, ceaseNightFlying, 'BNF-STBY', true);
-    }
-
-    // Duty Supervisor MUST cover entire Night flying window ONLY when night flying is programmed (2+ BNF trainees)
+    // 2. Schedule DUTY SUP for Night Flying window (if 2+ BNF trainees)
     if (nextEventLists.bnf.length >= 2) {
+        setProgress({ message: 'Scheduling Night Duty Supervisor...', percentage: 42 });
         const nightFlyingInstructorNames = new Set(Array.from(nightPairings.values()));
         const nightSupPool = dutySupEligible.filter(s => !nightFlyingInstructorNames.has(s.name));
         
-        // NEW ALGORITHM: Randomize night supervisor selection
+        // Randomize night supervisor selection
         const availableNightSupervisors = nightSupPool.filter(sup => {
             return !isPersonStaticallyUnavailable(sup, commenceNightFlying, ceaseNightFlying, buildDate, 'duty_sup');
-        }).sort(() => 0.5 - Math.random()); // Random selection instead of fewest assignments
+        }).sort(() => 0.5 - Math.random());
 
         // Try to find a dedicated night supervisor first
         let nightDutySup = availableNightSupervisors.length > 0 ? availableNightSupervisors[0] : null;
@@ -1509,7 +1476,134 @@ function generateDfpInternal(
             eventCounts.get(nightDutySup.name)!.dutySup++;
         }
     }
+
+    // NEW SCHEDULING ORDER (Lines 105-126 from DFP Build Rules)
+    // 3. Schedule Day Flight Events: a) Highest Priority, b) Next Events
+    setProgress({ message: 'Scheduling Day Flight Events (Priority)...', percentage: 45 });
+    // Highest Priority Flight Events are already added at the start
     
+    setProgress({ message: 'Scheduling Day Flight Events (Next)...', percentage: 50 });
+    scheduleList(
+        applyCoursePriority(filterOutBnfTrainees(nextEventLists.flight)), 
+        'flight', 
+        false, 
+        flyingStartTime, 
+        flyingEndTime, 
+        'STBY', 
+        false
+    );
+    
+    // 4. Schedule Night Flight Events (if 2+ BNF trainees): a) Highest Priority, b) Next Events
+    setProgress({ message: 'Scheduling Night Flying...', percentage: 55 });
+    if(nextEventLists.bnf.length >= 2) {
+         // Highest Priority Night Flight Events are already added at the start
+         
+         // Schedule Night Flight Next Events
+         const bnfWaveOneList = applyCoursePriority(nextEventLists.bnf);
+         scheduleList(bnfWaveOneList, 'flight', false, commenceNightFlying, ceaseNightFlying, 'BNF-STBY', true);
+    }
+    
+    // 5. Schedule FTD Events: a) Highest Priority, b) Next Events
+    setProgress({ message: 'Scheduling FTD Events (Priority)...', percentage: 60 });
+    // Highest Priority FTD Events are already added at the start
+    
+    setProgress({ message: 'Scheduling FTD Events (Next)...', percentage: 65 });
+    scheduleList(
+        applyCoursePriority(filterOutBnfTrainees(nextEventLists.ftd)), 
+        'ftd', 
+        false, 
+        flyingStartTime, 
+        flyingEndTime, 
+        'STBY', 
+        false
+    );
+    
+    // 6. Schedule CPT/Ground Events: a) Highest Priority, b) Next Events
+    setProgress({ message: 'Scheduling CPT Events (Priority)...', percentage: 70 });
+    // Highest Priority CPT Events are already added at the start
+    
+    setProgress({ message: 'Scheduling CPT Events (Next)...', percentage: 72 });
+    scheduleList(
+        applyCoursePriority(filterOutBnfTrainees(nextEventLists.cpt)), 
+        'cpt', 
+        false, 
+        flyingStartTime, 
+        flyingEndTime, 
+        null, 
+        false
+    );
+    
+    setProgress({ message: 'Scheduling Ground Events (Priority)...', percentage: 74 });
+    // Highest Priority Ground Events are already added at the start
+    
+    setProgress({ message: 'Scheduling Ground Events (Next)...', percentage: 76 });
+    scheduleList(
+        applyCoursePriority(filterOutBnfTrainees(nextEventLists.ground)), 
+        'ground', 
+        false, 
+        flyingStartTime, 
+        flyingEndTime, 
+        null, 
+        false
+    );
+    
+    // 7. Schedule Day Flight Events: Plus-One
+    setProgress({ message: 'Scheduling Day Flight Events (Plus-One)...', percentage: 78 });
+    scheduleList(
+        applyCoursePriority(filterOutBnfTrainees(nextPlusOneLists.flight)), 
+        'flight', 
+        true, 
+        flyingStartTime, 
+        flyingEndTime, 
+        'STBY', 
+        false
+    );
+    
+    // Schedule Night Flight Plus-One Events (if 2+ BNF trainees)
+    if(nextEventLists.bnf.length >= 2) {
+         setProgress({ message: 'Scheduling Night Flight Events (Plus-One)...', percentage: 80 });
+         const bnfWaveTwoList = nextEventLists.bnf.filter(trainee => {
+            const { plusOne } = traineeNextEventMap.get(trainee.fullName) || { plusOne: null };
+            return plusOne && plusOne.code.startsWith('BNF') && plusOne.type === 'Flight';
+         });
+         scheduleList(bnfWaveTwoList, 'flight', true, commenceNightFlying, ceaseNightFlying, 'BNF-STBY', true);
+    }
+    
+    // 8. Schedule FTD Events: Plus-One
+    setProgress({ message: 'Scheduling FTD Events (Plus-One)...', percentage: 82 });
+    scheduleList(
+        applyCoursePriority(filterOutBnfTrainees(nextPlusOneLists.ftd)), 
+        'ftd', 
+        true, 
+        flyingStartTime, 
+        flyingEndTime, 
+        'STBY', 
+        false
+    );
+    
+    // 9. Schedule CPT/Ground Events: Plus-One
+    setProgress({ message: 'Scheduling CPT Events (Plus-One)...', percentage: 84 });
+    scheduleList(
+        applyCoursePriority(filterOutBnfTrainees(nextPlusOneLists.cpt)), 
+        'cpt', 
+        true, 
+        flyingStartTime, 
+        flyingEndTime, 
+        null, 
+        false
+    );
+    
+    setProgress({ message: 'Scheduling Ground Events (Plus-One)...', percentage: 86 });
+    scheduleList(
+        applyCoursePriority(filterOutBnfTrainees(nextPlusOneLists.ground)), 
+        'ground', 
+        true, 
+        flyingStartTime, 
+        flyingEndTime, 
+        null, 
+        false
+    );
+
     setProgress({ message: 'Build complete!', percentage: 100 });
     return generatedEvents;
 }
