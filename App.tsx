@@ -564,11 +564,22 @@ interface CourseAnalysis {
     actualPercentage: number;
     deviation: number;
     eventCount: number;
+    possibleEvents: number;
+    schedulingEfficiency: number;
     eventsByType: {
         flight: number;
         ftd: number;
         cpt: number;
         ground: number;
+    };
+    limitingFactors: {
+        insufficientInstructors: number;
+        noAircraftSlots: number;
+        noFtdSlots: number;
+        noCptSlots: number;
+        traineeLimit: number;
+        instructorLimit: number;
+        noTimeSlots: number;
     };
     status: 'good' | 'fair' | 'poor';
 }
@@ -603,6 +614,54 @@ interface BuildAnalysis {
 }
 
 
+// Helper function to count possible events per course
+function countPossibleEvents(
+    traineesData: Trainee[],
+    coursePriorities: string[],
+    traineeLMPs: Map<string, LMP[]>,
+    scores: Map<string, Score[]>,
+    syllabusDetails: SyllabusDetail[],
+    publishedSchedules: Map<string, Omit<ScheduleEvent, 'date'>[]>,
+    buildDate: string
+): Map<string, number> {
+    const possibleEventCounts = new Map<string, number>();
+    
+    // Initialize counts
+    coursePriorities.forEach(course => {
+        possibleEventCounts.set(course, 0);
+    });
+    
+    // Count trainees with next events per course
+    const activeTrainees = traineesData.filter(t => !t.isPaused);
+    
+    activeTrainees.forEach(trainee => {
+        if (!coursePriorities.includes(trainee.course)) return;
+        
+        const { next, plusOne } = computeNextEventsForTrainee(
+            trainee,
+            traineeLMPs,
+            scores,
+            syllabusDetails,
+            publishedSchedules,
+            buildDate
+        );
+        
+        // Count next event
+        if (next) {
+            const currentCount = possibleEventCounts.get(trainee.course) || 0;
+            possibleEventCounts.set(trainee.course, currentCount + 1);
+        }
+        
+        // Count plus-one event
+        if (plusOne) {
+            const currentCount = possibleEventCounts.get(trainee.course) || 0;
+            possibleEventCounts.set(trainee.course, currentCount + 1);
+        }
+    });
+    
+    return possibleEventCounts;
+}
+
 // Analyze build results and compare to targets
 function analyzeBuildResults(
     events: Omit<ScheduleEvent, 'date'>[],
@@ -610,7 +669,11 @@ function analyzeBuildResults(
     coursePriorities: string[],
     availableAircraft: number,
     buildDate: string,
-    traineesData: Trainee[]
+    traineesData: Trainee[],
+    traineeLMPs: Map<string, LMP[]>,
+    scores: Map<string, Score[]>,
+    syllabusDetails: SyllabusDetail[],
+    publishedSchedules: Map<string, Omit<ScheduleEvent, 'date'>[]>
 ): BuildAnalysis {
     // Filter out non-scheduled events (Duty Sup, STBY)
     const scheduledEvents = events.filter(e => 
@@ -658,11 +721,24 @@ function analyzeBuildResults(
     });
     
     // Build course analysis
+    // Count possible events per course
+    const possibleEventCounts = countPossibleEvents(
+        traineesData,
+        coursePriorities,
+        traineeLMPs,
+        scores,
+        syllabusDetails,
+        publishedSchedules,
+        buildDate
+    );
+    
     const courseAnalysis: CourseAnalysis[] = coursePriorities.map(course => {
         const targetPercentage = normalizedPercentages.get(course) || 0;
         const eventCount = courseEventCounts.get(course) || 0;
+        const possibleEvents = possibleEventCounts.get(course) || 0;
         const actualPercentage = totalEvents > 0 ? (eventCount / totalEvents) * 100 : 0;
         const deviation = actualPercentage - targetPercentage;
+        const schedulingEfficiency = possibleEvents > 0 ? (eventCount / possibleEvents) * 100 : 0;
         
         let status: 'good' | 'fair' | 'poor';
         if (Math.abs(deviation) <= 5) status = 'good';
@@ -675,7 +751,18 @@ function analyzeBuildResults(
             actualPercentage,
             deviation,
             eventCount,
+            possibleEvents,
+            schedulingEfficiency,
             eventsByType: courseEventsByType.get(course) || { flight: 0, ftd: 0, cpt: 0, ground: 0 },
+            limitingFactors: {
+                insufficientInstructors: 0,
+                noAircraftSlots: 0,
+                noFtdSlots: 0,
+                noCptSlots: 0,
+                traineeLimit: 0,
+                instructorLimit: 0,
+                noTimeSlots: 0
+            },
             status
         };
     });
@@ -3795,7 +3882,11 @@ const App: React.FC = () => {
                     coursePriorities,
                     availableAircraftCount,
                     buildDfpDate,
-                    traineesData
+                    traineesData,
+                    traineeLMPs,
+                    scores,
+                    syllabusDetails,
+                    publishedSchedules
                 );
                 
                 // Store analysis in localStorage for priority analysis page

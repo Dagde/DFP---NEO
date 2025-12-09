@@ -1,42 +1,45 @@
-# Build Results Analysis Implementation
+# Build Results Analysis Enhancement - Possible vs Scheduled Events
 
-## Phase 1: Data Collection & Analysis Function
-- [x] Create BuildAnalysis interface and types
-- [x] Create analyzeBuildResults() function in App.tsx
-- [x] Calculate actual event distribution per course
-- [x] Calculate target vs actual percentages
-- [x] Calculate deviations and status ratings
-- [x] Analyze time distribution
-- [x] Calculate resource utilization
+## Phase 1: Extend Analysis Data Structure
+- [x] Update BuildAnalysis interface in App.tsx to include:
+  - [x] possibleEvents count per course (from Next Event + Plus-One lists)
+  - [x] schedulingEfficiency percentage per course
+  - [x] limitingFactors object tracking why events weren't scheduled
+- [x] Add helper function to count possible events from Next Event lists
 
-## Phase 2: Enhanced Priority Analysis Page
-- [x] Add tab system (Theory / Results)
-- [x] Create Results tab HTML structure
-- [x] Add summary dashboard section
-- [x] Add course distribution table
-- [x] Add visual charts (bar chart, pie chart)
-- [x] Add time distribution visualization
-- [x] Add insights and recommendations section
+## Phase 2: Implement Limiting Factor Detection
+- [ ] Track limiting factors during build process:
+  - [ ] Insufficient instructors available
+  - [ ] No aircraft slots available
+  - [ ] No FTD slots available
+  - [ ] No CPT slots available
+  - [ ] Trainee daily limit reached
+  - [ ] Instructor daily limit reached
+  - [ ] No suitable time slots (turnaround conflicts)
+- [ ] Store limiting factors in BuildAnalysis data structure
 
-## Phase 3: Integration
-- [x] Pass build results to analysis page via URL parameters
-- [x] Parse and display results in Results tab
-- [x] Handle cases where no results available yet
-- [x] Add localStorage for persistent results
+## Phase 3: Update Analysis Function
+- [ ] Modify analyzeBuildResults() to:
+  - [ ] Count possible events from Next Event lists per course
+  - [ ] Calculate scheduling efficiency (scheduled/possible)
+  - [ ] Aggregate limiting factors per course
+  - [ ] Generate insights about bottlenecks
 
-## Phase 4: Visual Enhancements
-- [ ] Add color coding (Green/Amber/Red)
-- [ ] Add progress bars for percentages
-- [ ] Add charts using Chart.js or similar
-- [ ] Add responsive design for mobile
+## Phase 4: Update UI Display
+- [x] Modify priority-analysis.html to show:
+  - [x] "Possible" column in course distribution table
+  - [x] "Scheduled" column (existing eventCount)
+  - [x] "Efficiency %" column
+  - [x] Limiting factors breakdown per course
+  - [x] Visual indicators for bottlenecks (color coding)
+  - [x] Summary of overall limiting factors
 
-## Phase 5: Testing & Documentation
-- [ ] Test with various percentage configurations
-- [ ] Test with different aircraft counts
-- [ ] Verify accuracy of calculations
-- [ ] Update documentation
+## Phase 5: Testing & Verification
+- [x] Test with various build scenarios
+- [ ] Verify limiting factor detection accuracy (Note: Limiting factors currently initialized to 0 - Phase 2 implementation needed)
+- [x] Ensure UI displays correctly
+- [x] Build and deploy changes
 
-## Phase 6: Deployment
-- [ ] Build and test
-- [ ] Commit to GitHub
-- [ ] Deploy to server
+## Phase 6: Documentation
+- [ ] Update implementation documentation
+- [ ] Commit and push all changes

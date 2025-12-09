@@ -969,7 +969,9 @@
                                 <th>Target %</th>
                                 <th>Actual %</th>
                                 <th>Deviation</th>
-                                <th>Events</th>
+                                <th>Possible</th>
+                                <th>Scheduled</th>
+                                <th>Efficiency</th>
                                 <th>Flight</th>
                                 <th>FTD</th>
                                 <th>CPT</th>
@@ -981,6 +983,12 @@
                             <!-- Populated by JavaScript -->
                         </tbody>
                     </table>
+                    
+                    <!-- Limiting Factors Section -->
+                    <h2>Scheduling Bottlenecks</h2>
+                    <div id="limiting-factors-container">
+                        <!-- Populated by JavaScript -->
+                    </div>
 
                     <!-- Time Distribution Chart -->
                     <h2>Time Distribution</h2>
@@ -1064,7 +1072,7 @@
                 const tableBody = document.getElementById('course-table-body');
                 tableBody.innerHTML = '';
                 
-                analysis.courseAnalysis.forEach(course => {
+analysis.courseAnalysis.forEach(course => {
                     const row = document.createElement('tr');
                     
                     const statusClass = course.status === 'good' ? 'status-good' : 
@@ -1075,6 +1083,9 @@
                     const deviationColor = Math.abs(course.deviation) <= 5 ? '#10b981' : 
                                           Math.abs(course.deviation) <= 10 ? '#f59e0b' : '#ef4444';
                     
+                    const efficiencyColor = course.schedulingEfficiency >= 80 ? '#10b981' :
+                                           course.schedulingEfficiency >= 60 ? '#f59e0b' : '#ef4444';
+                    
                     row.innerHTML = `
                         <td><strong>${course.courseName}</strong></td>
                         <td>${course.targetPercentage.toFixed(1)}%</td>
@@ -1082,7 +1093,11 @@
                         <td style="color: ${deviationColor}; font-weight: 600;">
                             ${course.deviation > 0 ? '+' : ''}${course.deviation.toFixed(1)}%
                         </td>
+                        <td><strong>${course.possibleEvents}</strong></td>
                         <td><strong>${course.eventCount}</strong></td>
+                        <td style="color: ${efficiencyColor}; font-weight: 600;">
+                            ${course.schedulingEfficiency.toFixed(0)}%
+                        </td>
                         <td>${course.eventsByType.flight}</td>
                         <td>${course.eventsByType.ftd}</td>
                         <td>${course.eventsByType.cpt}</td>
@@ -1093,11 +1108,94 @@
                     tableBody.appendChild(row);
                 });
                 
+                // Display limiting factors summary
+                const limitingFactorsContainer = document.getElementById('limiting-factors-container');
+                limitingFactorsContainer.innerHTML = '';
+                
+                // Aggregate limiting factors across all courses
+                const totalLimitingFactors = {
+                    insufficientInstructors: 0,
+                    noAircraftSlots: 0,
+                    noFtdSlots: 0,
+                    noCptSlots: 0,
+                    traineeLimit: 0,
+                    instructorLimit: 0,
+                    noTimeSlots: 0
+                };
+                
+                analysis.courseAnalysis.forEach(course => {
+                    if (course.limitingFactors) {
+                        Object.keys(totalLimitingFactors).forEach(key => {
+                            totalLimitingFactors[key] += course.limitingFactors[key] || 0;
+                        });
+                    }
+                });
+                
+                // Display limiting factors if any exist
+                const hasLimitingFactors = Object.values(totalLimitingFactors).some(v => v > 0);
+                
+                if (hasLimitingFactors) {
+                    const factorsBox = document.createElement('div');
+                    factorsBox.className = 'issue-box';
+                    factorsBox.innerHTML = '<h3>⚠ Scheduling Constraints Detected</h3>';
+                    
+                    const factorsList = document.createElement('ul');
+                    factorsList.style.marginTop = '10px';
+                    
+                    if (totalLimitingFactors.insufficientInstructors > 0) {
+                        const li = document.createElement('li');
+                        li.innerHTML = `<strong>Insufficient Instructors:</strong> ${totalLimitingFactors.insufficientInstructors} events could not be scheduled due to lack of available instructors`;
+                        factorsList.appendChild(li);
+                    }
+                    
+                    if (totalLimitingFactors.noAircraftSlots > 0) {
+                        const li = document.createElement('li');
+                        li.innerHTML = `<strong>No Aircraft Slots:</strong> ${totalLimitingFactors.noAircraftSlots} flight events could not be scheduled due to lack of available aircraft`;
+                        factorsList.appendChild(li);
+                    }
+                    
+                    if (totalLimitingFactors.noFtdSlots > 0) {
+                        const li = document.createElement('li');
+                        li.innerHTML = `<strong>No FTD Slots:</strong> ${totalLimitingFactors.noFtdSlots} FTD events could not be scheduled due to lack of available simulators`;
+                        factorsList.appendChild(li);
+                    }
+                    
+                    if (totalLimitingFactors.noCptSlots > 0) {
+                        const li = document.createElement('li');
+                        li.innerHTML = `<strong>No CPT Slots:</strong> ${totalLimitingFactors.noCptSlots} CPT events could not be scheduled due to lack of available simulators`;
+                        factorsList.appendChild(li);
+                    }
+                    
+                    if (totalLimitingFactors.traineeLimit > 0) {
+                        const li = document.createElement('li');
+                        li.innerHTML = `<strong>Trainee Daily Limit:</strong> ${totalLimitingFactors.traineeLimit} events could not be scheduled because trainees reached their daily event limit`;
+                        factorsList.appendChild(li);
+                    }
+                    
+                    if (totalLimitingFactors.instructorLimit > 0) {
+                        const li = document.createElement('li');
+                        li.innerHTML = `<strong>Instructor Daily Limit:</strong> ${totalLimitingFactors.instructorLimit} events could not be scheduled because instructors reached their daily event limit`;
+                        factorsList.appendChild(li);
+                    }
+                    
+                    if (totalLimitingFactors.noTimeSlots > 0) {
+                        const li = document.createElement('li');
+                        li.innerHTML = `<strong>No Suitable Time Slots:</strong> ${totalLimitingFactors.noTimeSlots} events could not be scheduled due to turnaround time conflicts or unavailability`;
+                        factorsList.appendChild(li);
+                    }
+                    
+                    factorsBox.appendChild(factorsList);
+                    limitingFactorsContainer.appendChild(factorsBox);
+                } else {
+                    const successBox = document.createElement('div');
+                    successBox.className = 'recommendation-box';
+                    successBox.innerHTML = '<h3>✓ No Scheduling Constraints</h3><p>All possible events were successfully scheduled without hitting any resource or personnel limits.</p>';
+                    limitingFactorsContainer.appendChild(successBox);
+                }
+                
                 // Populate time distribution chart
                 const timeChart = document.getElementById('time-chart');
-                timeChart.innerHTML = '';
-                
-                const eventsByHour = new Map(analysis.timeDistribution.eventsByHour);
+                timeChart.innerHTML = '';                const eventsByHour = new Map(analysis.timeDistribution.eventsByHour);
                 const maxEvents = Math.max(...Array.from(eventsByHour.values()));
                 
                 for (let hour = 0; hour < 24; hour++) {
