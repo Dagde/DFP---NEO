@@ -1725,7 +1725,7 @@ const App: React.FC = () => {
         tomorrow.setDate(tomorrow.getDate() + 1);
         return getLocalDateString(tomorrow);
     });
-    const [availableAircraftCount, setAvailableAircraftCount] = useState(24);
+    const [availableAircraftCount, setAvailableAircraftCount] = useState(15);
     const [availableFtdCount, setAvailableFtdCount] = useState(school === 'ESL' ? 5 : 4);
     const [availableCptCount, setAvailableCptCount] = useState(4);
     const [flyingStartTime, setFlyingStartTime] = useState(8.0); // 08:00
@@ -3359,6 +3359,9 @@ const App: React.FC = () => {
     };
 
     const handleBuildDfp = () => {
+        // Open priority analysis in new tab
+        window.open('/priority-analysis.html', '_blank');
+        
         // Use robust string comparison to avoid timezone issues between Local and UTC dates
         const todayStr = getLocalDateString();
         

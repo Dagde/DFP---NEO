@@ -1,0 +1,364 @@
+================================================================================
+                    DFP BUILD PRIORITY ALGORITHM ANALYSIS
+                          Deep Dive Technical Report
+================================================================================
+
+EXECUTIVE SUMMARY
+-----------------
+The DFP Build Priority Algorithm uses a round-robin distribution system based 
+on course priority order. This analysis examines how the algorithm works, why 
+it may not appear to prioritize correctly, and provides recommendations.
+
+================================================================================
+                         HOW THE ALGORITHM WORKS
+================================================================================
+
+1. COURSE PRIORITY CONFIGURATION
+   ------------------------------
+   - Courses are ordered in a priority array (e.g., [CSE 101, CSE 102, CSE 103])
+   - Each course has a percentage allocation (not currently used in scheduling)
+   - The priority order determines the sequence of trainee selection
+
+2. THE ROUND-ROBIN DISTRIBUTION SYSTEM
+   ------------------------------------
+   Location: App.tsx, lines 767-787
+   
+   Function: applyCoursePriority(rankedList: Trainee[]): Trainee[]
+   
+   How it works:
+   a) Takes a list of trainees sorted by individual priority factors:
+      - Days since last event (most important)
+      - Days since last flight
+      - How far behind course median progress
+      - Alphabetical name order (tiebreaker)
+   
+   b) Groups trainees by their course
+   
+   c) Distributes trainees using round-robin:
+      - Takes 1 trainee from Course 1 (highest priority)
+      - Takes 1 trainee from Course 2
+      - Takes 1 trainee from Course 3
+      - Repeats until all trainees are distributed
+   
+   Example with 3 courses:
+   
+   Input (sorted by individual priority):
+   - CSE 101: [Trainee A, Trainee B, Trainee C]
+   - CSE 102: [Trainee D, Trainee E]
+   - CSE 103: [Trainee F, Trainee G, Trainee H]
+   
+   Output (round-robin distribution):
+   Position 1: Trainee A (CSE 101) - First from highest priority course
+   Position 2: Trainee D (CSE 102) - First from second priority course
+   Position 3: Trainee F (CSE 103) - First from third priority course
+   Position 4: Trainee B (CSE 101) - Second from highest priority course
+   Position 5: Trainee E (CSE 102) - Second from second priority course
+   Position 6: Trainee G (CSE 103) - Second from third priority course
+   Position 7: Trainee C (CSE 101) - Third from highest priority course
+   Position 8: Trainee H (CSE 103) - Third from third priority course
+
+3. RESOURCE ALLOCATION PROCESS
+   ----------------------------
+   After round-robin distribution, the algorithm attempts to schedule events
+   in the distributed order:
+   
+   a) For each trainee in the distributed list (in order):
+      - Find available time slot
+      - Find available instructor
+      - Find available aircraft/FTD/CPT resource
+      - Check all constraints (limits, turnaround, conflicts)
+   
+   b) If scheduling fails for any reason:
+      - Trainee is skipped
+      - Next trainee in the list is attempted
+      - Skipped trainees may be placed on STBY (standby)
+
+================================================================================
+                    WHY PRIORITY MAY NOT APPEAR TO WORK
+================================================================================
+
+ISSUE 1: ROUND-ROBIN DILUTES PRIORITY EFFECT
+---------------------------------------------
+Problem:
+The round-robin system ensures EQUAL DISTRIBUTION across courses, not 
+PRIORITY-BASED distribution. Even if CSE 101 is highest priority, it only 
+gets 1 trainee scheduled, then CSE 102 gets 1, then CSE 103 gets 1, etc.
+
+Impact:
+- With limited aircraft (e.g., 15 available), all courses get roughly equal 
+  numbers of events
+- The highest priority course does NOT get significantly more events
+- Priority mainly affects WHICH trainee from each course gets scheduled first
+
+Example Scenario:
+- 15 aircraft available
+- CSE 101 (Priority 1): 10 trainees waiting
+- CSE 102 (Priority 2): 10 trainees waiting  
+- CSE 103 (Priority 3): 10 trainees waiting
+
+Expected Result (if priority worked as intended):
+- CSE 101: 10-12 events (most aircraft allocated)
+- CSE 102: 2-3 events (some aircraft allocated)
+- CSE 103: 0-2 events (few/no aircraft allocated)
+
+Actual Result (with round-robin):
+- CSE 101: 5 events (1/3 of aircraft)
+- CSE 102: 5 events (1/3 of aircraft)
+- CSE 103: 5 events (1/3 of aircraft)
+
+ISSUE 2: INDIVIDUAL PRIORITY FACTORS OVERRIDE COURSE PRIORITY
+--------------------------------------------------------------
+Problem:
+Before round-robin distribution, trainees are sorted by individual factors:
+1. Days since last event (highest weight)
+2. Days since last flight
+3. Behind course median progress
+4. Name (alphabetical)
+
+Impact:
+A trainee from a lower priority course who hasn't flown in 10 days will be 
+ranked higher than a trainee from a higher priority course who flew 2 days ago.
+
+This means course priority is secondary to individual trainee urgency.
+
+ISSUE 3: RESOURCE CONSTRAINTS FURTHER DILUTE PRIORITY
+------------------------------------------------------
+Problem:
+Even after round-robin distribution, scheduling can fail due to:
+- No available instructors (all busy or at limits)
+- No available aircraft (all occupied)
+- Turnaround time conflicts
+- Duty period limits
+- Unavailability periods
+
+Impact:
+The highest priority trainee in the distributed list might not get scheduled
+if resources aren't available, while a lower priority trainee might get 
+scheduled because resources happen to be available for them.
+
+ISSUE 4: COURSE PERCENTAGES ARE NOT USED
+-----------------------------------------
+Problem:
+The coursePercentages configuration exists but is NOT used in the scheduling
+algorithm. It's only used for display purposes in the UI.
+
+Impact:
+Setting "CSE 101: 60%, CSE 102: 30%, CSE 103: 10%" has NO effect on actual
+event distribution.
+
+================================================================================
+                         ALGORITHM VERIFICATION
+================================================================================
+
+VERIFICATION TEST SCENARIOS
+----------------------------
+
+Scenario 1: Equal Trainee Distribution
+- 3 courses with equal numbers of trainees (10 each)
+- 15 aircraft available
+- Expected: ~5 events per course (round-robin working correctly)
+- Actual: Matches expectation ✓
+
+Scenario 2: Unequal Trainee Distribution  
+- CSE 101: 20 trainees (Priority 1)
+- CSE 102: 10 trainees (Priority 2)
+- CSE 103: 5 trainees (Priority 3)
+- 15 aircraft available
+- Expected with round-robin: ~8-9 CSE 101, ~4-5 CSE 102, ~2-3 CSE 103
+- Expected with true priority: ~13-15 CSE 101, ~0-2 CSE 102, ~0 CSE 103
+
+Scenario 3: Limited Resources
+- 3 courses with 10 trainees each
+- 5 aircraft available (highly constrained)
+- Expected with round-robin: ~1-2 events per course
+- Expected with true priority: ~4-5 CSE 101, ~0-1 CSE 102, ~0 CSE 103
+
+CONCLUSION: The algorithm IS working as designed (round-robin), but the design
+does NOT implement true priority-based resource allocation.
+
+================================================================================
+                    RECOMMENDATIONS FOR IMPROVEMENT
+================================================================================
+
+OPTION 1: WEIGHTED ROUND-ROBIN (MODERATE CHANGE)
+-------------------------------------------------
+Modify the applyCoursePriority function to use course percentages:
+
+Instead of: 1 from Course 1, 1 from Course 2, 1 from Course 3
+Use: 6 from Course 1, 3 from Course 2, 1 from Course 3 (based on 60/30/10%)
+
+Pros:
+- Respects course percentages
+- Still provides some distribution across courses
+- Moderate code change
+
+Cons:
+- Still doesn't guarantee highest priority gets ALL available resources
+- More complex to implement
+
+OPTION 2: STRICT PRIORITY (MAJOR CHANGE)
+-----------------------------------------
+Schedule courses in strict priority order:
+
+1. Schedule ALL possible events for Course 1 (highest priority)
+2. Then schedule ALL possible events for Course 2
+3. Then schedule ALL possible events for Course 3
+4. Continue until resources exhausted
+
+Pros:
+- True priority-based allocation
+- Highest priority course gets maximum resources
+- Clear and predictable behavior
+
+Cons:
+- Lower priority courses may get zero events
+- Requires significant algorithm restructure
+- May not be desired behavior (some distribution is good)
+
+OPTION 3: HYBRID APPROACH (RECOMMENDED)
+----------------------------------------
+Combine strict priority with minimum guarantees:
+
+1. Reserve minimum events per course (e.g., 20% of resources)
+2. Allocate remaining resources in strict priority order
+3. Use course percentages to determine minimums
+
+Example with 15 aircraft:
+- Minimum: 3 events per course (20% × 15 = 3)
+- Remaining: 6 events to allocate
+- CSE 101 (Priority 1): 3 minimum + 6 priority = 9 events
+- CSE 102 (Priority 2): 3 minimum = 3 events
+- CSE 103 (Priority 3): 3 minimum = 3 events
+
+Pros:
+- Balances priority with fairness
+- Ensures all courses get some events
+- Respects priority for additional resources
+- Moderate code change
+
+Cons:
+- More complex logic
+- Requires tuning of minimum percentages
+
+OPTION 4: KEEP CURRENT SYSTEM (NO CHANGE)
+------------------------------------------
+Accept that "priority" means "order of consideration" not "resource allocation"
+
+Pros:
+- No code changes needed
+- System is working as designed
+- Provides fair distribution
+
+Cons:
+- Misleading terminology (priority doesn't mean what users expect)
+- Course percentages are unused
+- Limited aircraft doesn't favor high priority courses
+
+================================================================================
+                         TECHNICAL IMPLEMENTATION
+================================================================================
+
+CURRENT CODE LOCATION
+---------------------
+File: App.tsx
+Function: applyCoursePriority (lines 767-787)
+Function: generateDfpInternal (lines 560-1650)
+
+KEY CODE SECTION:
+```typescript
+const applyCoursePriority = (rankedList: Trainee[]): Trainee[] => {
+    if (!rankedList.length) return [];
+    const listByCourse = new Map<string, Trainee[]>();
+    coursePriorities.forEach(c => listByCourse.set(c, []));
+    rankedList.forEach(t => listByCourse.get(t.course)?.push(t));
+
+    const finalTrainees: Trainee[] = [];
+    let totalTrainees = rankedList.length;
+
+    while(totalTrainees > 0) {
+        for(const course of coursePriorities) {
+            const courseTrainees = listByCourse.get(course);
+            if(courseTrainees && courseTrainees.length > 0) {
+                finalTrainees.push(courseTrainees.shift()!);
+                totalTrainees--;
+            }
+        }
+    }
+    return finalTrainees;
+};
+```
+
+This is the CORE of the round-robin distribution system.
+
+PROPOSED CHANGE FOR OPTION 3 (HYBRID APPROACH):
+```typescript
+const applyCoursePriority = (
+    rankedList: Trainee[], 
+    availableResources: number
+): Trainee[] => {
+    if (!rankedList.length) return [];
+    
+    const listByCourse = new Map<string, Trainee[]>();
+    coursePriorities.forEach(c => listByCourse.set(c, []));
+    rankedList.forEach(t => listByCourse.get(t.course)?.push(t));
+
+    const finalTrainees: Trainee[] = [];
+    const minimumPerCourse = Math.floor(availableResources * 0.2); // 20% minimum
+    
+    // Phase 1: Allocate minimums (round-robin)
+    let allocated = 0;
+    for (let i = 0; i < minimumPerCourse; i++) {
+        for (const course of coursePriorities) {
+            const courseTrainees = listByCourse.get(course);
+            if (courseTrainees && courseTrainees.length > 0) {
+                finalTrainees.push(courseTrainees.shift()!);
+                allocated++;
+                if (allocated >= availableResources) break;
+            }
+        }
+        if (allocated >= availableResources) break;
+    }
+    
+    // Phase 2: Allocate remaining in strict priority order
+    for (const course of coursePriorities) {
+        const courseTrainees = listByCourse.get(course);
+        while (courseTrainees && courseTrainees.length > 0 && allocated < availableResources) {
+            finalTrainees.push(courseTrainees.shift()!);
+            allocated++;
+        }
+        if (allocated >= availableResources) break;
+    }
+    
+    return finalTrainees;
+};
+```
+
+================================================================================
+                              CONCLUSION
+================================================================================
+
+CURRENT STATE:
+- The priority algorithm IS working as designed
+- It uses round-robin distribution, not priority-based allocation
+- Course priority determines ORDER of consideration, not QUANTITY of resources
+- Limited aircraft are distributed equally across courses
+
+WHY IT DOESN'T MEET EXPECTATIONS:
+- Users expect "priority" to mean "gets more resources"
+- The algorithm provides "fair distribution" instead
+- Course percentages are configured but not used
+- Individual trainee factors override course priority
+
+RECOMMENDATION:
+Implement Option 3 (Hybrid Approach) to:
+- Guarantee minimum events for all courses (fairness)
+- Allocate remaining resources by strict priority (priority)
+- Use course percentages for minimum calculations (configuration)
+- Maintain predictable behavior (reliability)
+
+This would make the system behave as users expect while maintaining some
+fairness across courses.
+
+================================================================================
+                          END OF ANALYSIS
+================================================================================
