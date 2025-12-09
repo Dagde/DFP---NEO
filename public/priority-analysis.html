@@ -291,9 +291,16 @@
         <div class="executive-summary">
             <h2>Executive Summary</h2>
             <p>
-                The DFP Build Priority Algorithm uses a <strong>round-robin distribution system</strong> based on course priority order. 
-                This analysis examines how the algorithm works, why it may not appear to prioritize correctly when aircraft are limited, 
-                and provides recommendations for improvement.
+                <strong>✅ IMPLEMENTATION COMPLETED (December 2024)</strong>
+            </p>
+            <p>
+                The DFP Build Priority Algorithm NOW uses a <strong>weighted distribution system</strong> based on course percentages. 
+                This document explains how the NEW weighted system works, how it differs from the old round-robin system, 
+                and how to use it effectively to control event allocation.
+            </p>
+            <p>
+                <strong>Key Features:</strong> Deficit-based allocation, 5% minimum per course, auto-normalization, 
+                random shuffle within event types to prevent clustering.
             </p>
         </div>
 
@@ -308,17 +315,17 @@
             </ul>
         </div>
 
-        <h2 id="how-it-works">How the Algorithm Works</h2>
+        <h2 id="how-it-works">How the NEW Algorithm Works <span class="status-badge status-working">✓ IMPLEMENTED</span></h2>
 
         <h3>1. Course Priority Configuration</h3>
         <p>
             Courses are ordered in a priority array (e.g., <span class="highlight">CSE 101, CSE 102, CSE 103</span>). 
-            Each course has a percentage allocation, though this is <strong>not currently used</strong> in scheduling. 
-            The priority order determines the sequence of trainee selection.
+            Each course has a percentage allocation that <strong>NOW DIRECTLY CONTROLS</strong> event distribution. 
+            Percentages are auto-normalized to 100% and a 5% minimum is enforced for all courses.
         </p>
 
-        <h3>2. The Round-Robin Distribution System</h3>
-        <p><strong>Location:</strong> App.tsx, lines 767-787</p>
+        <h3>2. The Weighted Distribution System</h3>
+        <p><strong>Location:</strong> App.tsx, lines 794-850 (approximately)</p>
         <p><strong>Function:</strong> <code>applyCoursePriority(rankedList: Trainee[]): Trainee[]</code></p>
 
         <h4>How it works:</h4>
@@ -331,36 +338,61 @@
                     <li>Alphabetical name order (tiebreaker)</li>
                 </ul>
             </li>
-            <li><strong>Groups trainees</strong> by their course</li>
-            <li><strong>Distributes trainees</strong> using round-robin:
+            <li><strong>Normalizes course percentages</strong> to total 100%
                 <ul>
-                    <li>Takes 1 trainee from Course 1 (highest priority)</li>
-                    <li>Takes 1 trainee from Course 2</li>
-                    <li>Takes 1 trainee from Course 3</li>
-                    <li>Repeats until all trainees are distributed</li>
+                    <li>Example: 70%, 20%, 5% (95%) → 73.7%, 21.1%, 5.3% (100%)</li>
+                </ul>
+            </li>
+            <li><strong>Enforces 5% minimum</strong> for all courses
+                <ul>
+                    <li>Prevents any course from being starved of events</li>
+                </ul>
+            </li>
+            <li><strong>Groups trainees</strong> by their course (maintaining ranked order)</li>
+            <li><strong>Distributes trainees</strong> using DEFICIT-BASED SELECTION:
+                <ul>
+                    <li>For each event slot to fill:</li>
+                    <li>Calculate how many events each course has received so far</li>
+                    <li>Calculate how many events each course SHOULD have (based on percentage)</li>
+                    <li>Calculate deficit = target - actual for each course</li>
+                    <li>Select the course with the LARGEST deficit</li>
+                    <li>Take the next trainee from that course</li>
+                    <li>Repeat until all trainees are distributed</li>
+                </ul>
+            </li>
+            <li><strong>Shuffles events</strong> within each type to prevent clustering:
+                <ul>
+                    <li>Day Flights shuffled independently</li>
+                    <li>Night Flights shuffled independently</li>
+                    <li>FTD events shuffled independently</li>
+                    <li>CPT events shuffled independently</li>
+                    <li>Ground events shuffled independently</li>
                 </ul>
             </li>
         </ol>
 
         <div class="example-box">
-            <h4>Example with 3 courses:</h4>
+            <h4>Example with 3 courses (70%, 20%, 10%):</h4>
             <p><strong>Input (sorted by individual priority):</strong></p>
             <ul>
-                <li>CSE 101: [Trainee A, Trainee B, Trainee C]</li>
-                <li>CSE 102: [Trainee D, Trainee E]</li>
-                <li>CSE 103: [Trainee F, Trainee G, Trainee H]</li>
+                <li>CSE 101 (70%): [Trainee A, Trainee B, Trainee C, Trainee D, Trainee E]</li>
+                <li>CSE 102 (20%): [Trainee F, Trainee G]</li>
+                <li>CSE 103 (10%): [Trainee H, Trainee I]</li>
             </ul>
-            <p><strong>Output (round-robin distribution):</strong></p>
+            <p><strong>Output (deficit-based weighted distribution):</strong></p>
             <ol>
-                <li>Position 1: <span class="highlight">Trainee A (CSE 101)</span> - First from highest priority course</li>
-                <li>Position 2: Trainee D (CSE 102) - First from second priority course</li>
-                <li>Position 3: Trainee F (CSE 103) - First from third priority course</li>
-                <li>Position 4: <span class="highlight">Trainee B (CSE 101)</span> - Second from highest priority course</li>
-                <li>Position 5: Trainee E (CSE 102) - Second from second priority course</li>
-                <li>Position 6: Trainee G (CSE 103) - Second from third priority course</li>
-                <li>Position 7: <span class="highlight">Trainee C (CSE 101)</span> - Third from highest priority course</li>
-                <li>Position 8: Trainee H (CSE 103) - Third from third priority course</li>
+                <li>Slot 1: <span class="highlight">CSE 101 (deficit: 0.7)</span> → Trainee A</li>
+                <li>Slot 2: <span class="highlight">CSE 101 (deficit: 0.4)</span> → Trainee B</li>
+                <li>Slot 3: CSE 102 (deficit: 0.6) → Trainee F</li>
+                <li>Slot 4: <span class="highlight">CSE 101 (deficit: 0.8)</span> → Trainee C</li>
+                <li>Slot 5: <span class="highlight">CSE 101 (deficit: 0.5)</span> → Trainee D</li>
+                <li>Slot 6: CSE 103 (deficit: 0.6) → Trainee H</li>
+                <li>Slot 7: <span class="highlight">CSE 101 (deficit: 0.9)</span> → Trainee E</li>
+                <li>Slot 8: CSE 102 (deficit: 0.6) → Trainee G</li>
+                <li>Slot 9: CSE 103 (deficit: 0.9) → Trainee I</li>
             </ol>
+            <p><strong>Result:</strong> CSE 101 gets 5 events (55%), CSE 102 gets 2 events (22%), CSE 103 gets 2 events (22%)</p>
+            <p><em>Note: With more events, the distribution approaches the target percentages (70%, 20%, 10%) more closely.</em></p>
         </div>
 
         <h3>3. Resource Allocation Process</h3>

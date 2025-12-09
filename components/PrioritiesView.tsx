@@ -170,11 +170,16 @@ export const PrioritiesView: React.FC<PrioritiesViewProps> = ({
     const newPercentages = new Map<string, number>(coursePercentages);
     const currentPercent = newPercentages.get(courseToChange) ?? 0;
     const changeAmount = 5;
-    let newPercent = direction === 'increase' ? Math.min(100, currentPercent + changeAmount) : Math.max(0, currentPercent - changeAmount);
+    
+    // Calculate new percentage with 5% minimum enforcement
+    let newPercent = direction === 'increase' 
+      ? Math.min(100, currentPercent + changeAmount) 
+      : Math.max(5, currentPercent - changeAmount); // Enforce 5% minimum
+    
     newPercentages.set(courseToChange, newPercent);
        
-       // Log the change
-       logAudit('Priorities', 'Edit', `Updated course percentage for ${courseToChange}`, `${currentPercent}% → ${newPercent}%`);
+    // Log the change
+    logAudit('Priorities', 'Edit', `Updated course percentage for ${courseToChange}`, `${currentPercent}% → ${newPercent}%`);
     onUpdatePercentages(newPercentages);
   };
   
@@ -400,14 +405,23 @@ export const PrioritiesView: React.FC<PrioritiesViewProps> = ({
                                     <span className={`font-mono w-12 text-center ${totalPercentage !== 100 && 'text-red-400'}`}>{coursePercentages.get(course) ?? 0}%</span>
                                     <div className="flex flex-col">
                                         <ArrowButton direction="up" onClick={() => handlePercentageChange(course, 'increase')} disabled={(coursePercentages.get(course) ?? 0) >= 100} />
-                                        <ArrowButton direction="down" onClick={() => handlePercentageChange(course, 'decrease')} disabled={(coursePercentages.get(course) ?? 0) <= 0} />
+                                        <ArrowButton direction="down" onClick={() => handlePercentageChange(course, 'decrease')} disabled={(coursePercentages.get(course) ?? 0) <= 5} />
                                     </div>
                                 </div>
                             </li>
                         ))}
                     </ul>
-                     <div className={`mt-3 p-2 rounded text-center text-sm font-semibold ${totalPercentage === 100 ? 'bg-green-500/20 text-green-300' : 'bg-red-500/20 text-red-300'}`}>
+                     <div className={`mt-3 p-2 rounded text-center text-sm font-semibold ${totalPercentage === 100 ? 'bg-green-500/20 text-green-300' : 'bg-amber-500/20 text-amber-300'}`}>
                         Total: {totalPercentage}%
+                    </div>
+                    <div className="mt-2 p-2 bg-blue-500/10 border border-blue-500/30 rounded text-xs text-blue-300">
+                        <p className="font-semibold mb-1">ℹ️ Weighted Priority System:</p>
+                        <ul className="list-disc list-inside space-y-1 text-blue-200">
+                            <li>Percentages are auto-normalized to 100%</li>
+                            <li>Minimum percentage per course: 5%</li>
+                            <li>Higher % = more events (biased allocation)</li>
+                            <li>All courses still get events (no starvation)</li>
+                        </ul>
                     </div>
                 </div>
             </div>

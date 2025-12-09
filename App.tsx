@@ -765,24 +765,86 @@ function generateDfpInternal(
     Object.values(nextPlusOneLists).forEach(list => list.sort(sortTrainees));
 
     setProgress({ message: 'Allocating course slots...', percentage: 30 });
+    
+    // Helper: Normalize percentages to sum to 100%
+    const normalizePercentages = (percentages: Map<string, number>): Map<string, number> => {
+        const total = Array.from(percentages.values()).reduce((sum, val) => sum + val, 0);
+        if (total === 0) return percentages; // Avoid division by zero
+        
+        const normalized = new Map<string, number>();
+        percentages.forEach((value, key) => {
+            normalized.set(key, (value / total) * 100);
+        });
+        return normalized;
+    };
+    
+    // Helper: Enforce minimum percentage (5%) for all courses
+    const enforceMinimumPercentage = (percentages: Map<string, number>, minimum: number): Map<string, number> => {
+        const enforced = new Map<string, number>();
+        percentages.forEach((value, key) => {
+            enforced.set(key, Math.max(value, minimum));
+        });
+        // Re-normalize after enforcing minimums
+        return normalizePercentages(enforced);
+    };
+    
+    // NEW: Weighted course selection based on percentages
+    // Uses deficit-based allocation: courses that are behind their target get priority
     const applyCoursePriority = (rankedList: Trainee[]): Trainee[] => {
         if (!rankedList.length) return [];
+        
+        // 1. Normalize and enforce minimum percentages
+        const normalizedPercentages = normalizePercentages(coursePercentages);
+        const enforcedPercentages = enforceMinimumPercentage(normalizedPercentages, 5);
+        
+        // 2. Group trainees by course (maintaining their ranked order within each course)
         const listByCourse = new Map<string, Trainee[]>();
         coursePriorities.forEach(c => listByCourse.set(c, []));
         rankedList.forEach(t => listByCourse.get(t.course)?.push(t));
-
+        
+        // 3. Event-by-event selection based on deficit
         const finalTrainees: Trainee[] = [];
-        let totalTrainees = rankedList.length;
-
-        while(totalTrainees > 0) {
-            for(const course of coursePriorities) {
+        const courseAllocations = new Map<string, number>();
+        coursePriorities.forEach(c => courseAllocations.set(c, 0));
+        
+        let totalAllocated = 0;
+        
+        // Continue until all trainees are allocated
+        while (finalTrainees.length < rankedList.length) {
+            totalAllocated++;
+            
+            // Calculate deficit for each course
+            let maxDeficit = -Infinity;
+            let selectedCourse: string | null = null;
+            
+            for (const course of coursePriorities) {
                 const courseTrainees = listByCourse.get(course);
-                if(courseTrainees && courseTrainees.length > 0) {
-                    finalTrainees.push(courseTrainees.shift()!);
-                    totalTrainees--;
+                if (!courseTrainees || courseTrainees.length === 0) continue;
+                
+                const allocated = courseAllocations.get(course) || 0;
+                const percentage = enforcedPercentages.get(course) || 0;
+                const target = (percentage / 100) * totalAllocated;
+                const deficit = target - allocated;
+                
+                // Select course with largest deficit
+                if (deficit > maxDeficit) {
+                    maxDeficit = deficit;
+                    selectedCourse = course;
                 }
             }
+            
+            // Allocate next trainee from selected course
+            if (selectedCourse) {
+                const courseTrainees = listByCourse.get(selectedCourse)!;
+                const trainee = courseTrainees.shift()!;
+                finalTrainees.push(trainee);
+                courseAllocations.set(selectedCourse, (courseAllocations.get(selectedCourse) || 0) + 1);
+            } else {
+                // Safety: if no course selected, break to avoid infinite loop
+                break;
+            }
         }
+        
         return finalTrainees;
     };
     
@@ -1614,8 +1676,73 @@ function generateDfpInternal(
         false
     );
 
+    setProgress({ message: 'Shuffling events for distribution...', percentage: 95 });
+    
+    // Helper: Shuffle array randomly (Fisher-Yates algorithm)
+    const shuffleArray = <T,>(array: T[]): T[] => {
+        const shuffled = [...array];
+        for (let i = shuffled.length - 1; i > 0; i--) {
+            const j = Math.floor(Math.random() * (i + 1));
+            [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+        }
+        return shuffled;
+    };
+    
+    // Shuffle events within each type to prevent clustering
+    // This ensures high-priority courses don't all cluster at the beginning of the day
+    const shuffleEventsByType = (events: Omit<ScheduleEvent, 'date'>[]): Omit<ScheduleEvent, 'date'>[] => {
+        // Separate events by type and time window
+        const dayFlights = events.filter(e => 
+            e.type === 'flight' && 
+            !e.flightNumber.startsWith('BNF') &&
+            !e.resourceId.startsWith('STBY')
+        );
+        const nightFlights = events.filter(e => 
+            e.type === 'flight' && 
+            e.flightNumber.startsWith('BNF') &&
+            !e.resourceId.startsWith('BNF-STBY')
+        );
+        const ftdEvents = events.filter(e => 
+            e.type === 'ftd' &&
+            !e.resourceId.startsWith('STBY')
+        );
+        const cptEvents = events.filter(e => e.type === 'cpt');
+        const groundEvents = events.filter(e => 
+            e.type === 'ground' && 
+            !e.flightNumber.includes('Duty Sup')
+        );
+        
+        // Keep these in order (don't shuffle)
+        const dutySupEvents = events.filter(e => e.flightNumber.includes('Duty Sup'));
+        const stbyEvents = events.filter(e => 
+            e.resourceId.startsWith('STBY') || 
+            e.resourceId.startsWith('BNF-STBY')
+        );
+        
+        // Shuffle each group independently
+        const shuffledDayFlights = shuffleArray(dayFlights);
+        const shuffledNightFlights = shuffleArray(nightFlights);
+        const shuffledFtdEvents = shuffleArray(ftdEvents);
+        const shuffledCptEvents = shuffleArray(cptEvents);
+        const shuffledGroundEvents = shuffleArray(groundEvents);
+        
+        // Recombine in logical order
+        return [
+            ...dutySupEvents,           // Duty supervisors first (maintain order)
+            ...shuffledDayFlights,      // Day flights (shuffled)
+            ...shuffledNightFlights,    // Night flights (shuffled)
+            ...shuffledFtdEvents,       // FTD events (shuffled)
+            ...shuffledCptEvents,       // CPT events (shuffled)
+            ...shuffledGroundEvents,    // Ground events (shuffled)
+            ...stbyEvents               // Standby events last (maintain order)
+        ];
+    };
+    
+    // Apply shuffle to prevent clustering
+    const shuffledEvents = shuffleEventsByType(generatedEvents);
+    
     setProgress({ message: 'Build complete!', percentage: 100 });
-    return generatedEvents;
+    return shuffledEvents;
 }
 
 
