@@ -49,7 +49,7 @@ const Sidebar: React.FC<SidebarProps> = ({ activeView, onNavigate, courseColors,
   const [isTraineeMenuPinned, setIsTraineeMenuPinned] = useState(false);
   const traineeMenuRef = useRef<HTMLDivElement>(null);
 
-  const nextDayBuildSubViews = ['NextDayBuild', 'Priorities', 'ProgramData', 'NextDayInstructorSchedule', 'NextDayTraineeSchedule'];
+  const nextDayBuildSubViews = ['NextDayBuild', 'Priorities', 'ProgramData', 'BuildAnalysis', 'NextDayInstructorSchedule', 'NextDayTraineeSchedule'];
   const isNextDayBuildSectionActive = nextDayBuildSubViews.includes(activeView);
   const [isNdbMenuOpen, setIsNdbMenuOpen] = useState(isNextDayBuildSectionActive);
 
@@ -280,6 +280,7 @@ const Sidebar: React.FC<SidebarProps> = ({ activeView, onNavigate, courseColors,
                     <button onClick={() => onNavigate('NextDayTraineeSchedule')} className={`w-full text-left px-4 py-1 text-sm font-semibold btn-aluminium-brushed rounded-md ${activeView === 'NextDayTraineeSchedule' ? 'active' : ''}`}><span>Trainee Schedule</span></button>
                     <button onClick={() => onNavigate('Priorities')} className={`w-full text-left px-4 py-1 text-sm font-semibold btn-aluminium-brushed rounded-md ${activeView === 'Priorities' ? 'active' : ''}`}><span>Priorities</span></button>
                     <button onClick={() => onNavigate('ProgramData')} className={`w-full text-left px-4 py-1 text-sm font-semibold btn-aluminium-brushed rounded-md ${activeView === 'ProgramData' ? 'active' : ''}`}><span>Program Data</span></button>
+                    <button onClick={() => onNavigate('BuildAnalysis')} className={`w-full text-left px-4 py-1 text-sm font-semibold btn-aluminium-brushed rounded-md ${activeView === 'BuildAnalysis' ? 'active' : ''}`}><span>Build Analysis</span></button>
                     <button onClick={onBuildDfpClick} className="w-full text-left px-4 py-1 text-sm font-semibold btn-orange-brushed rounded-md"><span>NEO - Build</span></button>
                     <button onClick={onPublish} className="w-full text-left px-4 py-1 text-sm font-semibold btn-green-brushed rounded-md"><span>Publish</span></button>
                 </div>

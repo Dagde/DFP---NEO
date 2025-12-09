@@ -60,6 +60,7 @@ import SupervisorDashboard from './components/SupervisorDashboard';
 import { NextDayBuildView } from './components/NextDayBuildView';
 import { PrioritiesViewWithMenu } from './components/PrioritiesViewWithMenu';
 import ProgramDataView from './components/ProgramDataView';
+import BuildAnalysisView from './components/BuildAnalysisView';
 import BuildDfpLoadingFlyout from './components/BuildDfpLoadingFlyout';
 import BuildDateWarningFlyout from './components/BuildDateWarningFlyout';
 import UnavailabilityConflictFlyout from './components/UnavailabilityConflictFlyout';
@@ -2177,6 +2178,7 @@ const App: React.FC = () => {
         tomorrow.setDate(tomorrow.getDate() + 1);
         return getLocalDateString(tomorrow);
     });
+    const [lastBuildAnalysis, setLastBuildAnalysis] = useState<BuildAnalysis | null>(null);
     const [availableAircraftCount, setAvailableAircraftCount] = useState(15);
     const [availableFtdCount, setAvailableFtdCount] = useState(school === 'ESL' ? 5 : 4);
     const [availableCptCount, setAvailableCptCount] = useState(4);
@@ -3889,6 +3891,9 @@ const App: React.FC = () => {
                     publishedSchedules
                 );
                 
+                // Store analysis in state for BuildAnalysisView
+                setLastBuildAnalysis(analysis);
+                
                 // Store analysis in localStorage for priority analysis page
                 localStorage.setItem('lastBuildAnalysis', JSON.stringify({
                     ...analysis,
@@ -5373,6 +5378,11 @@ updates.forEach(update => {
                             scores={scores}
                             syllabusDetails={syllabusDetails}
                             traineeLMPs={traineeLMPs}
+                        />;
+            case 'BuildAnalysis':
+                return <BuildAnalysisView
+                            buildDate={buildDfpDate}
+                            analysis={lastBuildAnalysis}
                         />;
             case 'MyDashboard':
                 // Get all events from published schedules for PT-051 lookup
