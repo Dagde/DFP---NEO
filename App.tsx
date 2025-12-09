@@ -558,6 +558,244 @@ interface PlannedEvent {
     isSct: boolean;
 }
 
+interface CourseAnalysis {
+    courseName: string;
+    targetPercentage: number;
+    actualPercentage: number;
+    deviation: number;
+    eventCount: number;
+    eventsByType: {
+        flight: number;
+        ftd: number;
+        cpt: number;
+        ground: number;
+    };
+    status: 'good' | 'fair' | 'poor';
+}
+
+interface TimeDistribution {
+    eventsByHour: Map<number, number>;
+    clusteringScore: number;
+    uniformityScore: number;
+}
+
+interface ResourceUtilization {
+    aircraftUtilization: number;
+    instructorUtilization: number;
+    ftdUtilization: number;
+    standbyCount: number;
+}
+
+interface Insight {
+    type: 'success' | 'warning' | 'error' | 'info';
+    message: string;
+    recommendation?: string;
+}
+
+interface BuildAnalysis {
+    buildDate: string;
+    totalEvents: number;
+    availableAircraft: number;
+    courseAnalysis: CourseAnalysis[];
+    timeDistribution: TimeDistribution;
+    resourceUtilization: ResourceUtilization;
+    insights: Insight[];
+}
+
+
+// Analyze build results and compare to targets
+function analyzeBuildResults(
+    events: Omit<ScheduleEvent, 'date'>[],
+    coursePercentages: Map<string, number>,
+    coursePriorities: string[],
+    availableAircraft: number,
+    buildDate: string,
+    traineesData: Trainee[]
+): BuildAnalysis {
+    // Filter out non-scheduled events (Duty Sup, STBY)
+    const scheduledEvents = events.filter(e => 
+        !e.flightNumber.includes('Duty Sup') && 
+        !e.resourceId.startsWith('STBY') && 
+        !e.resourceId.startsWith('BNF-STBY')
+    );
+    
+    const totalEvents = scheduledEvents.length;
+    
+    // Normalize percentages
+    const normalizePercentages = (percentages: Map<string, number>): Map<string, number> => {
+        const total = Array.from(percentages.values()).reduce((sum, val) => sum + val, 0);
+        if (total === 0) return percentages;
+        const normalized = new Map<string, number>();
+        percentages.forEach((value, key) => {
+            normalized.set(key, (value / total) * 100);
+        });
+        return normalized;
+    };
+    
+    const normalizedPercentages = normalizePercentages(coursePercentages);
+    
+    // Calculate actual distribution per course
+    const courseEventCounts = new Map<string, number>();
+    const courseEventsByType = new Map<string, { flight: number, ftd: number, cpt: number, ground: number }>();
+    
+    coursePriorities.forEach(course => {
+        courseEventCounts.set(course, 0);
+        courseEventsByType.set(course, { flight: 0, ftd: 0, cpt: 0, ground: 0 });
+    });
+    
+    scheduledEvents.forEach(event => {
+        const trainee = traineesData.find(t => t.fullName === event.student || t.fullName === event.pilot);
+        if (trainee && coursePriorities.includes(trainee.course)) {
+            const course = trainee.course;
+            courseEventCounts.set(course, (courseEventCounts.get(course) || 0) + 1);
+            
+            const typeCount = courseEventsByType.get(course)!;
+            if (event.type === 'flight') typeCount.flight++;
+            else if (event.type === 'ftd') typeCount.ftd++;
+            else if (event.type === 'cpt') typeCount.cpt++;
+            else if (event.type === 'ground') typeCount.ground++;
+        }
+    });
+    
+    // Build course analysis
+    const courseAnalysis: CourseAnalysis[] = coursePriorities.map(course => {
+        const targetPercentage = normalizedPercentages.get(course) || 0;
+        const eventCount = courseEventCounts.get(course) || 0;
+        const actualPercentage = totalEvents > 0 ? (eventCount / totalEvents) * 100 : 0;
+        const deviation = actualPercentage - targetPercentage;
+        
+        let status: 'good' | 'fair' | 'poor';
+        if (Math.abs(deviation) <= 5) status = 'good';
+        else if (Math.abs(deviation) <= 10) status = 'fair';
+        else status = 'poor';
+        
+        return {
+            courseName: course,
+            targetPercentage,
+            actualPercentage,
+            deviation,
+            eventCount,
+            eventsByType: courseEventsByType.get(course) || { flight: 0, ftd: 0, cpt: 0, ground: 0 },
+            status
+        };
+    });
+    
+    // Calculate time distribution
+    const eventsByHour = new Map<number, number>();
+    for (let h = 0; h < 24; h++) {
+        eventsByHour.set(h, 0);
+    }
+    
+    scheduledEvents.forEach(event => {
+        const hour = Math.floor(event.startTime);
+        eventsByHour.set(hour, (eventsByHour.get(hour) || 0) + 1);
+    });
+    
+    // Calculate clustering score (0 = perfect uniform, 1 = highly clustered)
+    const avgEventsPerHour = totalEvents / 24;
+    let clusteringScore = 0;
+    eventsByHour.forEach(count => {
+        clusteringScore += Math.abs(count - avgEventsPerHour);
+    });
+    clusteringScore = clusteringScore / (totalEvents * 2); // Normalize to 0-1
+    
+    // Calculate uniformity score (inverse of clustering)
+    const uniformityScore = 1 - clusteringScore;
+    
+    // Calculate resource utilization
+    const flightEvents = scheduledEvents.filter(e => e.type === 'flight').length;
+    const ftdEvents = scheduledEvents.filter(e => e.type === 'ftd').length;
+    const standbyCount = events.filter(e => 
+        e.resourceId.startsWith('STBY') || e.resourceId.startsWith('BNF-STBY')
+    ).length;
+    
+    const aircraftUtilization = availableAircraft > 0 ? (flightEvents / availableAircraft) * 100 : 0;
+    
+    // Generate insights
+    const insights: Insight[] = [];
+    
+    // Overall status
+    const allGood = courseAnalysis.every(c => c.status === 'good');
+    const anyPoor = courseAnalysis.some(c => c.status === 'poor');
+    
+    if (allGood) {
+        insights.push({
+            type: 'success',
+            message: 'Excellent! All courses achieved their target percentages within ±5%.',
+            recommendation: 'Current settings are optimal. Continue monitoring future builds.'
+        });
+    } else if (anyPoor) {
+        insights.push({
+            type: 'warning',
+            message: 'Some courses deviated significantly from targets (>10%).',
+            recommendation: 'Review resource constraints and unavailability periods. Consider adjusting percentages or increasing resources.'
+        });
+    } else {
+        insights.push({
+            type: 'info',
+            message: 'Most courses achieved their targets. Minor deviations detected.',
+            recommendation: 'Monitor trends over multiple builds. Small deviations are normal with limited resources.'
+        });
+    }
+    
+    // Time distribution insight
+    if (uniformityScore > 0.8) {
+        insights.push({
+            type: 'success',
+            message: 'Events are well-distributed throughout the day.',
+            recommendation: 'Random shuffle is working effectively to prevent clustering.'
+        });
+    } else if (uniformityScore < 0.6) {
+        insights.push({
+            type: 'warning',
+            message: 'Events show some clustering in certain time periods.',
+            recommendation: 'This may be due to resource constraints or unavailability. Review instructor and aircraft availability.'
+        });
+    }
+    
+    // Resource utilization insight
+    if (aircraftUtilization > 90) {
+        insights.push({
+            type: 'success',
+            message: `High aircraft utilization (${aircraftUtilization.toFixed(0)}%).`,
+            recommendation: 'Resources are being used efficiently.'
+        });
+    } else if (aircraftUtilization < 60) {
+        insights.push({
+            type: 'info',
+            message: `Aircraft utilization is ${aircraftUtilization.toFixed(0)}%.`,
+            recommendation: 'Consider reducing available aircraft count or increasing trainee demand.'
+        });
+    }
+    
+    // Standby events insight
+    if (standbyCount > 0) {
+        insights.push({
+            type: 'warning',
+            message: `${standbyCount} events placed on standby.`,
+            recommendation: 'These trainees could not be scheduled due to resource constraints. Consider increasing resources or adjusting schedules.'
+        });
+    }
+    
+    return {
+        buildDate,
+        totalEvents,
+        availableAircraft,
+        courseAnalysis,
+        timeDistribution: {
+            eventsByHour,
+            clusteringScore,
+            uniformityScore
+        },
+        resourceUtilization: {
+            aircraftUtilization,
+            instructorUtilization: 0, // TODO: Calculate if needed
+            ftdUtilization: 0, // TODO: Calculate if needed
+            standbyCount
+        },
+        insights
+    };
+}
 
 function generateDfpInternal(
     config: DfpConfig, 
@@ -1859,7 +2097,7 @@ const App: React.FC = () => {
     const [flyingEndTime, setFlyingEndTime] = useState(17.0); // 17:00
     const [ftdStartTime, setFtdStartTime] = useState(8.0); // 08:00
     const [ftdEndTime, setFtdEndTime] = useState(17.0); // 17:00
-    const [allowNightFlying, setAllowNightFlying] = useState(false);
+    const [allowNightFlying, setAllowNightFlying] = useState(true);
     const [commenceNightFlying, setCommenceNightFlying] = useState(18.5); // 18:30
     const [ceaseNightFlying, setCeaseNightFlying] = useState(23.5); // 23:30
     const [preferredDutyPeriod, setPreferredDutyPeriod] = useState(8);
@@ -3550,6 +3788,28 @@ const App: React.FC = () => {
                 console.log('DFP build completed, generated', generated.length, 'events');
                 setNextDayBuildEvents(generated);
 
+                // Analyze build results
+                const analysis = analyzeBuildResults(
+                    generated,
+                    coursePercentages,
+                    coursePriorities,
+                    availableAircraftCount,
+                    buildDfpDate,
+                    traineesData
+                );
+                
+                // Store analysis in localStorage for priority analysis page
+                localStorage.setItem('lastBuildAnalysis', JSON.stringify({
+                    ...analysis,
+                    timeDistribution: {
+                        eventsByHour: Array.from(analysis.timeDistribution.eventsByHour.entries()),
+                        clusteringScore: analysis.timeDistribution.clusteringScore,
+                        uniformityScore: analysis.timeDistribution.uniformityScore
+                    }
+                }));
+                
+                console.log('Build analysis:', analysis);
+
                 const notifications: string[] = [];
                 const allPersonnel = [...instructorsData, ...traineesData];
                 generated.forEach(event => {
@@ -3563,7 +3823,7 @@ const App: React.FC = () => {
                        "Next Day Build",
                        "Add",
                        `NEO-Build completed for ${buildDfpDate}`,
-                       `Generated ${generated.length} events, Flight: ${generated.filter(e => e.type === flight).length}, FTD: ${generated.filter(e => e.type === ftd).length}, Ground: ${generated.filter(e => e.type === ground).length}`
+                       `Generated ${generated.length} events, Flight: ${generated.filter(e => e.type === 'flight').length}, FTD: ${generated.filter(e => e.type === 'ftd').length}, Ground: ${generated.filter(e => e.type === 'ground').length}`
                    );
                         }
                     });

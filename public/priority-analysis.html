@@ -249,6 +249,211 @@
             }
         }
 
+        /* Tab System Styles */
+        .tab-container {
+            margin: 30px 0;
+        }
+
+        .tab-buttons {
+            display: flex;
+            gap: 10px;
+            border-bottom: 2px solid #334155;
+            margin-bottom: 30px;
+        }
+
+        .tab-button {
+            padding: 12px 24px;
+            background: transparent;
+            border: none;
+            color: #94a3b8;
+            font-size: 1.1em;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s;
+            border-bottom: 3px solid transparent;
+            position: relative;
+            bottom: -2px;
+        }
+
+        .tab-button:hover {
+            color: #38bdf8;
+        }
+
+        .tab-button.active {
+            color: #38bdf8;
+            border-bottom-color: #38bdf8;
+        }
+
+        .tab-content {
+            display: none;
+        }
+
+        .tab-content.active {
+            display: block;
+        }
+
+        /* Results Tab Styles */
+        .results-summary {
+            background: linear-gradient(135deg, #1e40af 0%, #3b82f6 100%);
+            padding: 30px;
+            border-radius: 8px;
+            margin-bottom: 40px;
+            border-left: 5px solid #60a5fa;
+        }
+
+        .results-summary h2 {
+            color: #fff;
+            margin-top: 0;
+            margin-bottom: 20px;
+        }
+
+        .summary-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 20px;
+        }
+
+        .summary-stat {
+            background: rgba(255, 255, 255, 0.1);
+            padding: 15px;
+            border-radius: 6px;
+        }
+
+        .summary-stat-label {
+            color: #bfdbfe;
+            font-size: 0.9em;
+            margin-bottom: 5px;
+        }
+
+        .summary-stat-value {
+            color: #fff;
+            font-size: 1.8em;
+            font-weight: 700;
+        }
+
+        .course-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 20px 0;
+            background: #1e293b;
+            border-radius: 8px;
+            overflow: hidden;
+        }
+
+        .course-table th {
+            background: #334155;
+            color: #38bdf8;
+            padding: 15px;
+            text-align: left;
+            font-weight: 600;
+        }
+
+        .course-table td {
+            padding: 15px;
+            border-top: 1px solid #334155;
+            color: #cbd5e1;
+        }
+
+        .course-table tr:hover {
+            background: #2d3748;
+        }
+
+        .status-indicator {
+            display: inline-block;
+            padding: 4px 12px;
+            border-radius: 12px;
+            font-size: 0.85em;
+            font-weight: 600;
+        }
+
+        .status-good {
+            background: #10b981;
+            color: #fff;
+        }
+
+        .status-fair {
+            background: #f59e0b;
+            color: #fff;
+        }
+
+        .status-poor {
+            background: #ef4444;
+            color: #fff;
+        }
+
+        .progress-bar {
+            width: 100%;
+            height: 8px;
+            background: #334155;
+            border-radius: 4px;
+            overflow: hidden;
+            margin-top: 5px;
+        }
+
+        .progress-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #38bdf8 0%, #0ea5e9 100%);
+            transition: width 0.3s;
+        }
+
+        .no-results {
+            text-align: center;
+            padding: 60px 20px;
+            color: #94a3b8;
+        }
+
+        .no-results-icon {
+            font-size: 4em;
+            margin-bottom: 20px;
+        }
+
+        .time-chart {
+            background: #1e293b;
+            padding: 20px;
+            border-radius: 8px;
+            margin: 20px 0;
+        }
+
+        .time-bar-container {
+            display: flex;
+            align-items: flex-end;
+            gap: 4px;
+            height: 200px;
+            margin-top: 20px;
+        }
+
+        .time-bar {
+            flex: 1;
+            background: linear-gradient(180deg, #38bdf8 0%, #0ea5e9 100%);
+            border-radius: 4px 4px 0 0;
+            position: relative;
+            transition: all 0.3s;
+        }
+
+        .time-bar:hover {
+            background: linear-gradient(180deg, #7dd3fc 0%, #38bdf8 100%);
+        }
+
+        .time-bar-label {
+            position: absolute;
+            bottom: -25px;
+            left: 50%;
+            transform: translateX(-50%);
+            font-size: 0.7em;
+            color: #94a3b8;
+            white-space: nowrap;
+        }
+
+        .time-bar-value {
+            position: absolute;
+            top: -25px;
+            left: 50%;
+            transform: translateX(-50%);
+            font-size: 0.8em;
+            color: #38bdf8;
+            font-weight: 600;
+        }
+
         .toc {
             background: rgba(15, 23, 42, 0.6);
             border: 1px solid #334155;

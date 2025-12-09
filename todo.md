@@ -1,33 +1,42 @@
-# Weighted Priority System Implementation
+# Build Results Analysis Implementation
 
-## Phase 1: Core Algorithm Functions
-- [x] Create normalizePercentages() function
-- [x] Create enforceMinimumPercentage() function
-- [x] Replace applyCoursePriority() with weightedCourseSelection()
-- [x] Implement deficit-based course selection logic
+## Phase 1: Data Collection & Analysis Function
+- [x] Create BuildAnalysis interface and types
+- [x] Create analyzeBuildResults() function in App.tsx
+- [x] Calculate actual event distribution per course
+- [x] Calculate target vs actual percentages
+- [x] Calculate deviations and status ratings
+- [x] Analyze time distribution
+- [x] Calculate resource utilization
 
-## Phase 2: Random Shuffle Implementation
-- [x] Create shuffleArray() helper function
-- [x] Create shuffleEventsByType() function
-- [x] Integrate shuffle into build process
+## Phase 2: Enhanced Priority Analysis Page
+- [ ] Add tab system (Theory / Results)
+- [ ] Create Results tab HTML structure
+- [ ] Add summary dashboard section
+- [ ] Add course distribution table
+- [ ] Add visual charts (bar chart, pie chart)
+- [ ] Add time distribution visualization
+- [ ] Add insights and recommendations section
 
-## Phase 3: UI Validation
-- [x] Add 5% minimum validation to percentage inputs
-- [x] Add error messages for invalid percentages
-- [x] Display normalized percentages to user
+## Phase 3: Integration
+- [ ] Pass build results to analysis page via URL parameters
+- [ ] Parse and display results in Results tab
+- [ ] Handle cases where no results available yet
+- [ ] Add localStorage for persistent results
 
-## Phase 4: Testing & Verification
-- [x] Build and test with various percentage combinations
-- [x] Verify normalization works correctly
-- [x] Verify 5% minimum enforcement
-- [x] Verify random distribution within event types
+## Phase 4: Visual Enhancements
+- [ ] Add color coding (Green/Amber/Red)
+- [ ] Add progress bars for percentages
+- [ ] Add charts using Chart.js or similar
+- [ ] Add responsive design for mobile
 
-## Phase 5: Documentation
-- [x] Update PRIORITY_ALGORITHM_ANALYSIS.txt
-- [x] Update priority-analysis.html
-- [x] Create implementation summary
+## Phase 5: Testing & Documentation
+- [ ] Test with various percentage configurations
+- [ ] Test with different aircraft counts
+- [ ] Verify accuracy of calculations
+- [ ] Update documentation
 
 ## Phase 6: Deployment
-- [ ] Commit changes to GitHub
-- [ ] Build production version
-- [ ] Start server and expose port
+- [ ] Build and test
+- [ ] Commit to GitHub
+- [ ] Deploy to server
