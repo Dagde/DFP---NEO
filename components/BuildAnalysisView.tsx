@@ -130,8 +130,12 @@ const CourseDistributionTable: React.FC<{ courseAnalysis: CourseAnalysis[] }> = 
 
 // Time Distribution Chart Component
 const TimeDistributionChart: React.FC<{ timeDistribution: TimeDistribution }> = ({ timeDistribution }) => {
-    const eventsByHour = timeDistribution.eventsByHour;
-    const maxEvents = Math.max(...Array.from(eventsByHour.values()));
+    // Convert eventsByHour to Map if it's not already (handles serialization)
+    const eventsByHour = timeDistribution.eventsByHour instanceof Map 
+        ? timeDistribution.eventsByHour 
+        : new Map(Object.entries(timeDistribution.eventsByHour as any).map(([k, v]) => [parseInt(k), v as number]));
+    
+    const maxEvents = Math.max(...Array.from(eventsByHour.values()), 0);
     
     return (
         <div className="bg-gray-800 rounded-lg shadow-lg p-6 border border-gray-700">

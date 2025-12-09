@@ -3813,8 +3813,8 @@ const App: React.FC = () => {
     };
 
     const handleBuildDfp = () => {
-        // Open priority analysis in new tab
-        window.open('/priority-analysis.html', '_blank');
+        // Note: Priority analysis is now integrated in the Build Analysis sidebar item
+        // No need to open external tab
         
         // Use robust string comparison to avoid timezone issues between Local and UTC dates
         const todayStr = getLocalDateString();
