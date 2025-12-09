@@ -1048,7 +1048,11 @@
         function loadBuildResults() {
             const analysisData = localStorage.getItem('lastBuildAnalysis');
             
+            console.log('Loading build results...');
+            console.log('Analysis data exists:', !!analysisData);
+            
             if (!analysisData) {
+                console.log('No analysis data found in localStorage');
                 document.getElementById('no-results').style.display = 'block';
                 document.getElementById('results-content').style.display = 'none';
                 return;
@@ -1056,6 +1060,8 @@
             
             try {
                 const analysis = JSON.parse(analysisData);
+                console.log('Parsed analysis:', analysis);
+                console.log('Course analysis:', analysis.courseAnalysis);
                 
                 // Hide no-results, show content
                 document.getElementById('no-results').style.display = 'none';
@@ -1072,7 +1078,8 @@
                 const tableBody = document.getElementById('course-table-body');
                 tableBody.innerHTML = '';
                 
-analysis.courseAnalysis.forEach(course => {
+                analysis.courseAnalysis.forEach((course, index) => {
+                    console.log(`Processing course ${index}:`, course);
                     const row = document.createElement('tr');
                     
                     const statusClass = course.status === 'good' ? 'status-good' : 
@@ -1083,8 +1090,8 @@ analysis.courseAnalysis.forEach(course => {
                     const deviationColor = Math.abs(course.deviation) <= 5 ? '#10b981' : 
                                           Math.abs(course.deviation) <= 10 ? '#f59e0b' : '#ef4444';
                     
-                    const efficiencyColor = course.schedulingEfficiency >= 80 ? '#10b981' :
-                                           course.schedulingEfficiency >= 60 ? '#f59e0b' : '#ef4444';
+                    const efficiencyColor = (course.schedulingEfficiency || 0) >= 80 ? '#10b981' :
+                                           (course.schedulingEfficiency || 0) >= 60 ? '#f59e0b' : '#ef4444';
                     
                     row.innerHTML = `
                         <td><strong>${course.courseName}</strong></td>
@@ -1093,10 +1100,10 @@ analysis.courseAnalysis.forEach(course => {
                         <td style="color: ${deviationColor}; font-weight: 600;">
                             ${course.deviation > 0 ? '+' : ''}${course.deviation.toFixed(1)}%
                         </td>
-                        <td><strong>${course.possibleEvents}</strong></td>
+                        <td><strong>${course.possibleEvents || 0}</strong></td>
                         <td><strong>${course.eventCount}</strong></td>
                         <td style="color: ${efficiencyColor}; font-weight: 600;">
-                            ${course.schedulingEfficiency.toFixed(0)}%
+                            ${(course.schedulingEfficiency || 0).toFixed(0)}%
                         </td>
                         <td>${course.eventsByType.flight}</td>
                         <td>${course.eventsByType.ftd}</td>
