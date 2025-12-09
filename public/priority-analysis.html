@@ -493,6 +493,16 @@
         <h1>DFP Build Priority Algorithm Analysis</h1>
         <p class="subtitle">Deep Dive Technical Report</p>
 
+        <!-- Tab Navigation -->
+        <div class="tab-container">
+            <div class="tab-buttons">
+                <button class="tab-button active" onclick="switchTab('theory')">Theory &amp; Documentation</button>
+                <button class="tab-button" onclick="switchTab('results')">Build Results Analysis</button>
+            </div>
+
+            <!-- Theory Tab (existing content) -->
+            <div id="theory-tab" class="tab-content active">
+
         <div class="executive-summary">
             <h2>Executive Summary</h2>
             <p>
@@ -897,6 +907,276 @@
                 This would make the system behave as users expect while maintaining some fairness across courses.
             </p>
         </div>
+
+            </div>
+            <!-- End Theory Tab -->
+
+            <!-- Results Tab -->
+            <div id="results-tab" class="tab-content">
+                <div id="no-results" class="no-results">
+                    <div class="no-results-icon">📊</div>
+                    <h2>No Build Results Yet</h2>
+                    <p>Run a DFP build to see the analysis of actual results.</p>
+                    <p style="margin-top: 20px; color: #64748b;">
+                        The analysis will show:
+                    </p>
+                    <ul style="text-align: left; display: inline-block; margin-top: 10px;">
+                        <li>Target vs Actual percentages per course</li>
+                        <li>Deviation analysis with color coding</li>
+                        <li>Event type breakdown</li>
+                        <li>Time distribution throughout the day</li>
+                        <li>Resource utilization metrics</li>
+                        <li>Insights and recommendations</li>
+                    </ul>
+                </div>
+
+                <div id="results-content" style="display: none;">
+                    <!-- Summary Dashboard -->
+                    <div class="results-summary">
+                        <h2>Build Results Summary</h2>
+                        <div class="summary-grid">
+                            <div class="summary-stat">
+                                <div class="summary-stat-label">Build Date</div>
+                                <div class="summary-stat-value" id="summary-date">-</div>
+                            </div>
+                            <div class="summary-stat">
+                                <div class="summary-stat-label">Total Events</div>
+                                <div class="summary-stat-value" id="summary-total">-</div>
+                            </div>
+                            <div class="summary-stat">
+                                <div class="summary-stat-label">Aircraft Available</div>
+                                <div class="summary-stat-value" id="summary-aircraft">-</div>
+                            </div>
+                            <div class="summary-stat">
+                                <div class="summary-stat-label">Utilization</div>
+                                <div class="summary-stat-value" id="summary-utilization">-</div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Overall Status -->
+                    <div id="overall-status" class="recommendation-box" style="margin-bottom: 30px;">
+                        <h4>Overall Status</h4>
+                        <p id="status-message">Analyzing results...</p>
+                    </div>
+
+                    <!-- Course Distribution Table -->
+                    <h2>Course Distribution Analysis</h2>
+                    <table class="course-table">
+                        <thead>
+                            <tr>
+                                <th>Course</th>
+                                <th>Target %</th>
+                                <th>Actual %</th>
+                                <th>Deviation</th>
+                                <th>Events</th>
+                                <th>Flight</th>
+                                <th>FTD</th>
+                                <th>CPT</th>
+                                <th>Ground</th>
+                                <th>Status</th>
+                            </tr>
+                        </thead>
+                        <tbody id="course-table-body">
+                            <!-- Populated by JavaScript -->
+                        </tbody>
+                    </table>
+
+                    <!-- Time Distribution Chart -->
+                    <h2>Time Distribution</h2>
+                    <div class="time-chart">
+                        <h3 style="margin-top: 0;">Events Throughout the Day</h3>
+                        <p style="color: #94a3b8; margin-bottom: 10px;">
+                            Uniformity Score: <span id="uniformity-score" style="color: #38bdf8; font-weight: 600;">-</span>
+                        </p>
+                        <div class="time-bar-container" id="time-chart">
+                            <!-- Populated by JavaScript -->
+                        </div>
+                    </div>
+
+                    <!-- Insights and Recommendations -->
+                    <h2>Insights &amp; Recommendations</h2>
+                    <div id="insights-container">
+                        <!-- Populated by JavaScript -->
+                    </div>
+                </div>
+            </div>
+            <!-- End Results Tab -->
+
+        </div>
+        <!-- End Tab Container -->
+
     </div>
+
+    <script>
+        // Tab switching functionality
+        function switchTab(tabName) {
+            // Hide all tabs
+            document.querySelectorAll('.tab-content').forEach(tab => {
+                tab.classList.remove('active');
+            });
+            
+            // Remove active class from all buttons
+            document.querySelectorAll('.tab-button').forEach(button => {
+                button.classList.remove('active');
+            });
+            
+            // Show selected tab
+            const selectedTab = document.getElementById(tabName + '-tab');
+            if (selectedTab) {
+                selectedTab.classList.add('active');
+            }
+            
+            // Add active class to clicked button
+            event.target.classList.add('active');
+            
+            // If switching to results tab, load the data
+            if (tabName === 'results') {
+                loadBuildResults();
+            }
+        }
+
+        // Load and display build results
+        function loadBuildResults() {
+            const analysisData = localStorage.getItem('lastBuildAnalysis');
+            
+            if (!analysisData) {
+                document.getElementById('no-results').style.display = 'block';
+                document.getElementById('results-content').style.display = 'none';
+                return;
+            }
+            
+            try {
+                const analysis = JSON.parse(analysisData);
+                
+                // Hide no-results, show content
+                document.getElementById('no-results').style.display = 'none';
+                document.getElementById('results-content').style.display = 'block';
+                
+                // Populate summary
+                document.getElementById('summary-date').textContent = analysis.buildDate;
+                document.getElementById('summary-total').textContent = analysis.totalEvents;
+                document.getElementById('summary-aircraft').textContent = analysis.availableAircraft;
+                document.getElementById('summary-utilization').textContent = 
+                    analysis.resourceUtilization.aircraftUtilization.toFixed(0) + '%';
+                
+                // Populate course table
+                const tableBody = document.getElementById('course-table-body');
+                tableBody.innerHTML = '';
+                
+                analysis.courseAnalysis.forEach(course => {
+                    const row = document.createElement('tr');
+                    
+                    const statusClass = course.status === 'good' ? 'status-good' : 
+                                       course.status === 'fair' ? 'status-fair' : 'status-poor';
+                    const statusText = course.status === 'good' ? '✓ Good' : 
+                                      course.status === 'fair' ? '⚠ Fair' : '✗ Poor';
+                    
+                    const deviationColor = Math.abs(course.deviation) <= 5 ? '#10b981' : 
+                                          Math.abs(course.deviation) <= 10 ? '#f59e0b' : '#ef4444';
+                    
+                    row.innerHTML = `
+                        <td><strong>${course.courseName}</strong></td>
+                        <td>${course.targetPercentage.toFixed(1)}%</td>
+                        <td>${course.actualPercentage.toFixed(1)}%</td>
+                        <td style="color: ${deviationColor}; font-weight: 600;">
+                            ${course.deviation > 0 ? '+' : ''}${course.deviation.toFixed(1)}%
+                        </td>
+                        <td><strong>${course.eventCount}</strong></td>
+                        <td>${course.eventsByType.flight}</td>
+                        <td>${course.eventsByType.ftd}</td>
+                        <td>${course.eventsByType.cpt}</td>
+                        <td>${course.eventsByType.ground}</td>
+                        <td><span class="status-indicator ${statusClass}">${statusText}</span></td>
+                    `;
+                    
+                    tableBody.appendChild(row);
+                });
+                
+                // Populate time distribution chart
+                const timeChart = document.getElementById('time-chart');
+                timeChart.innerHTML = '';
+                
+                const eventsByHour = new Map(analysis.timeDistribution.eventsByHour);
+                const maxEvents = Math.max(...Array.from(eventsByHour.values()));
+                
+                for (let hour = 0; hour < 24; hour++) {
+                    const count = eventsByHour.get(hour) || 0;
+                    const height = maxEvents > 0 ? (count / maxEvents) * 100 : 0;
+                    
+                    if (count > 0) {
+                        const bar = document.createElement('div');
+                        bar.className = 'time-bar';
+                        bar.style.height = height + '%';
+                        bar.innerHTML = `
+                            <div class="time-bar-value">${count}</div>
+                            <div class="time-bar-label">${hour.toString().padStart(2, '0')}:00</div>
+                        `;
+                        timeChart.appendChild(bar);
+                    }
+                }
+                
+                // Display uniformity score
+                const uniformityScore = (analysis.timeDistribution.uniformityScore * 100).toFixed(0);
+                document.getElementById('uniformity-score').textContent = uniformityScore + '%';
+                
+                // Populate insights
+                const insightsContainer = document.getElementById('insights-container');
+                insightsContainer.innerHTML = '';
+                
+                analysis.insights.forEach(insight => {
+                    const insightBox = document.createElement('div');
+                    const boxClass = insight.type === 'success' ? 'recommendation-box' : 
+                                     insight.type === 'warning' ? 'issue-box' : 
+                                     insight.type === 'error' ? 'issue-box' : 'example-box';
+                    
+                    const icon = insight.type === 'success' ? '✓' : 
+                                insight.type === 'warning' ? '⚠' : 
+                                insight.type === 'error' ? '✗' : 'ℹ';
+                    
+                    insightBox.className = boxClass;
+                    insightBox.innerHTML = `
+                        <h4>${icon} ${insight.message}</h4>
+                        ${insight.recommendation ? `<p><strong>Recommendation:</strong> ${insight.recommendation}</p>` : ''}
+                    `;
+                    
+                    insightsContainer.appendChild(insightBox);
+                });
+                
+                // Set overall status
+                const allGood = analysis.courseAnalysis.every(c => c.status === 'good');
+                const anyPoor = analysis.courseAnalysis.some(c => c.status === 'poor');
+                
+                const statusBox = document.getElementById('overall-status');
+                const statusMessage = document.getElementById('status-message');
+                
+                if (allGood) {
+                    statusBox.className = 'recommendation-box';
+                    statusMessage.innerHTML = '<strong>✓ EXCELLENT:</strong> All courses achieved their target percentages within ±5%. The weighted priority system is working as intended.';
+                } else if (anyPoor) {
+                    statusBox.className = 'issue-box';
+                    statusMessage.innerHTML = '<strong>⚠ NEEDS ATTENTION:</strong> Some courses deviated significantly from targets (&amp;gt;10%). Review resource constraints and consider adjustments.';
+                } else {
+                    statusBox.className = 'example-box';
+                    statusMessage.innerHTML = '<strong>ℹ GOOD:</strong> Most courses achieved their targets with minor deviations. This is normal with limited resources.';
+                }
+                
+            } catch (error) {
+                console.error('Error loading build results:', error);
+                document.getElementById('no-results').style.display = 'block';
+                document.getElementById('results-content').style.display = 'none';
+            }
+        }
+
+        // Load results on page load if on results tab
+        window.addEventListener('load', function() {
+            const urlParams = new URLSearchParams(window.location.search);
+            const tab = urlParams.get('tab');
+            
+            if (tab === 'results') {
+                switchTab('results');
+            }
+        });
+    </script>
 </body>
 </html>
