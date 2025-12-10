@@ -459,7 +459,7 @@ const BuildAnalysisView: React.FC<BuildAnalysisViewProps> = ({ buildDate, analys
                         title="Total Events per Course"
                         data={analysis.courseAnalysis.map((course, index) => ({
                             label: course.courseName,
-                            value: course.scheduledEvents,
+                            value: course.eventCount,
                             color: `hsl(${(index * 360) / analysis.courseAnalysis.length}, 70%, 60%)`
                         }))}
                     />
