@@ -1315,6 +1315,16 @@ function generateDfpInternal(
         }
 
         if (standbyPrefix && (type === 'flight' || type === 'ftd')) {
+            // Track STBY events by line (1-4) with their end times
+            const stbyLines: { lineNumber: number; nextAvailableTime: number }[] = [
+                { lineNumber: 1, nextAvailableTime: startTimeBoundary },
+                { lineNumber: 2, nextAvailableTime: startTimeBoundary },
+                { lineNumber: 3, nextAvailableTime: startTimeBoundary },
+                { lineNumber: 4, nextAvailableTime: startTimeBoundary }
+            ];
+            
+            const GAP_DURATION = 15 / 60; // 15 minutes in hours
+            
             unplacedTrainees.forEach((trainee, index) => {
                 const traineeCounts = eventCounts.get(trainee.fullName)!;
                 if (traineeCounts.flightFtd > 0 || traineeCounts.isStby) return;
@@ -1325,15 +1335,45 @@ function generateDfpInternal(
 
                 const result = scheduleEvent(trainee, syllabusItem, startTimeBoundary, type, isNightPass, isPlusOne);
                 if (result === 'stby') {
-                    const stbyResourceId = `${standbyPrefix} ${generatedEvents.filter(e=>e.resourceId.startsWith(standbyPrefix)).length + 1}`;
-                     generatedEvents.push({
-                        id: uuidv4(), type: type, instructor: 'TBD', student: trainee.fullName,
-                        flightNumber: syllabusItem.id, duration: syllabusItem.duration, startTime: startTimeBoundary, resourceId: stbyResourceId,
+                    // Find the STBY line with the earliest available time that can fit this event before end of day
+                    let selectedLine = stbyLines[0];
+                    for (const line of stbyLines) {
+                        if (line.nextAvailableTime < selectedLine.nextAvailableTime && 
+                            line.nextAvailableTime + syllabusItem.duration <= endTimeBoundary) {
+                            selectedLine = line;
+                        }
+                    }
+                    
+                    // If the selected line would go past end of day, try to find any line that fits
+                    if (selectedLine.nextAvailableTime + syllabusItem.duration > endTimeBoundary) {
+                        selectedLine = stbyLines.find(line => 
+                            line.nextAvailableTime + syllabusItem.duration <= endTimeBoundary
+                        ) || selectedLine;
+                    }
+                    
+                    const eventStartTime = selectedLine.nextAvailableTime;
+                    const stbyResourceId = `${standbyPrefix} ${selectedLine.lineNumber}`;
+                    
+                    generatedEvents.push({
+                        id: uuidv4(), 
+                        type: type, 
+                        instructor: 'TBD', 
+                        student: trainee.fullName,
+                        flightNumber: syllabusItem.id, 
+                        duration: syllabusItem.duration, 
+                        startTime: eventStartTime, 
+                        resourceId: stbyResourceId,
                         color: standbyPrefix === 'STBY' ? 'bg-yellow-500/50' : 'bg-blue-800/70',
-                        flightType: 'Dual', locationType: 'Local', origin: school, destination: school,
+                        flightType: 'Dual', 
+                        locationType: 'Local', 
+                        origin: school, 
+                        destination: school,
                         authNotes: `P${index + 1}`
-                     });
-                     traineeCounts.isStby = true;
+                    });
+                    
+                    // Update the line's next available time (event end + 15 min gap)
+                    selectedLine.nextAvailableTime = eventStartTime + syllabusItem.duration + GAP_DURATION;
+                    traineeCounts.isStby = true;
                 }
             });
         }
