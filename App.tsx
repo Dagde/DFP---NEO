@@ -1324,6 +1324,7 @@ function generateDfpInternal(
             ];
             
             const GAP_DURATION = 15 / 60; // 15 minutes in hours
+            let currentLineIndex = 0; // Start with line 1 (index 0)
             
             unplacedTrainees.forEach((trainee, index) => {
                 const traineeCounts = eventCounts.get(trainee.fullName)!;
@@ -1335,20 +1336,20 @@ function generateDfpInternal(
 
                 const result = scheduleEvent(trainee, syllabusItem, startTimeBoundary, type, isNightPass, isPlusOne);
                 if (result === 'stby') {
-                    // Find the STBY line with the earliest available time that can fit this event before end of day
-                    let selectedLine = stbyLines[0];
-                    for (const line of stbyLines) {
-                        if (line.nextAvailableTime < selectedLine.nextAvailableTime && 
-                            line.nextAvailableTime + syllabusItem.duration <= endTimeBoundary) {
-                            selectedLine = line;
-                        }
-                    }
+                    // Try to place on current line first
+                    let selectedLine = stbyLines[currentLineIndex];
                     
-                    // If the selected line would go past end of day, try to find any line that fits
+                    // Check if event fits on current line (before end of day window)
                     if (selectedLine.nextAvailableTime + syllabusItem.duration > endTimeBoundary) {
-                        selectedLine = stbyLines.find(line => 
-                            line.nextAvailableTime + syllabusItem.duration <= endTimeBoundary
-                        ) || selectedLine;
+                        // Current line is full, move to next line
+                        currentLineIndex++;
+                        
+                        // If we've exhausted all 4 lines, wrap back to line 1 (but this shouldn't happen often)
+                        if (currentLineIndex >= stbyLines.length) {
+                            currentLineIndex = 0;
+                        }
+                        
+                        selectedLine = stbyLines[currentLineIndex];
                     }
                     
                     const eventStartTime = selectedLine.nextAvailableTime;
