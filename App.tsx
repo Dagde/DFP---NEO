@@ -1644,7 +1644,7 @@ function generateDfpInternal(
         
         let resourceId: string | null = null;
         const resourcePrefix = type === 'flight' ? 'PC-21 ' : type === 'ftd' ? 'FTD ' : type === 'cpt' ? 'CPT ' : 'Ground ';
-        const resourceCount = type === 'flight' ? availableAircraftCount : type === 'ftd' ? ftdCount : type === 'cpt' ? 4 : 6;
+        const resourceCount = type === 'flight' ? availableAircraftCount : type === 'ftd' ? availableFtdCount : type === 'cpt' ? availableCptCount : 6;
         
         for (let i = 1; i <= resourceCount; i++) {
             const id = `${resourcePrefix}${i}`;
@@ -2330,7 +2330,6 @@ const App: React.FC = () => {
     const onSaveRef = useRef<() => void>(() => {});
     const onDiscardRef = useRef<() => void>(() => {});
     
-    const ftdCount = school === 'ESL' ? 5 : 4;
     const buildResources = useMemo(() => {
         // PC-21 count is fixed at 24
         const pc21Count = 24;
@@ -2383,14 +2382,14 @@ const App: React.FC = () => {
             ...pc21Resources,
             ...Array.from({ length: 4 }, (_, i) => `STBY ${i + 1}`),
             'Duty Sup',
-            ...Array.from({ length: ftdCount }, (_, i) => `FTD ${i + 1}`),
-            ...Array.from({ length: 4 }, (_, i) => `CPT ${i + 1}`),
+            ...Array.from({ length: availableFtdCount }, (_, i) => `FTD ${i + 1}`),
+            ...Array.from({ length: availableCptCount }, (_, i) => `CPT ${i + 1}`),
             ...Array.from({ length: 6 }, (_, i) => `Ground ${i + 1}`),
         ];
         
         console.log('Built resources:', resources);
         return resources;
-    }, [ftdCount, availableAircraftCount, date, activeView, publishedSchedules, nextDayBuildEvents]);
+    }, [availableFtdCount, availableCptCount, availableAircraftCount, date, activeView, publishedSchedules, nextDayBuildEvents]);
     
     useEffect(() => {
         const init = async () => {
@@ -2431,10 +2430,8 @@ const App: React.FC = () => {
         localStorage.setItem('timezoneOffset', timezoneOffset.toString());
     }, [timezoneOffset]);
 
-    // Update FTD available count based on school location
-    useEffect(() => {
-        setAvailableFtdCount(school === 'ESL' ? 5 : 4);
-    }, [school]);
+    // FTD available count is now managed by user input in PrioritiesView
+    // Default initialization is handled in useState declaration
 
     // Auto-update buildDfpDate to tomorrow's date on mount and daily
     useEffect(() => {
@@ -3878,8 +3875,6 @@ const App: React.FC = () => {
         setIsBuildingDfp(true);
         setNextDayBuildEvents([]); // Clear previous build
         
-        const ftdCount = school === 'ESL' ? 5 : 4;
-
         const config: DfpConfig = {
             instructors: instructorsData,
             trainees: traineesData,
@@ -3888,7 +3883,7 @@ const App: React.FC = () => {
             coursePriorities,
             coursePercentages,
             availableAircraftCount,
-            ftdCount,
+            ftdCount: availableFtdCount,
             courseColors,
             school,
             dayStart: flyingStartTime,
