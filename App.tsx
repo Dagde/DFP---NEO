@@ -1682,6 +1682,10 @@ function generateDfpInternal(
             if (!resourceIsOccupied) { resourceId = id; break; }
         }
         
+        // Check if event should go to STBY first (no resource available)
+        if ((type === 'flight' || type === 'ftd') && !resourceId) return 'stby';
+        if (!resourceId) return null;
+        
         let area: string | undefined = undefined;
         if (type === 'flight') {
             const isBnf = syllabusItem.code.startsWith('BNF');
@@ -1711,9 +1715,6 @@ function generateDfpInternal(
             });
             if(takeoffConflict) return null;
         }
-
-        if ((type === 'flight' || type === 'ftd') && !resourceId) return 'stby';
-        if (!resourceId) return null;
         
         return {
             id: uuidv4(), type: type, instructor: instructor.name, student: trainee.fullName,
