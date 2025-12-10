@@ -294,6 +294,7 @@ interface DfpConfig {
   coursePercentages: Map<string, number>;
   availableAircraftCount: number;
   ftdCount: number;
+  cptCount: number;
   courseColors: { [key: string]: string };
   school: 'ESL' | 'PEA';
   dayStart: number;
@@ -892,7 +893,7 @@ function generateDfpInternal(
 ): Omit<ScheduleEvent, 'date'>[] {
     const { 
         instructors: originalInstructors, trainees, syllabus: syllabusDetails, scores, 
-        coursePriorities, coursePercentages, availableAircraftCount, ftdCount,
+        coursePriorities, coursePercentages, availableAircraftCount, ftdCount, cptCount,
         courseColors, school, dayStart: flyingStartTime, dayEnd: flyingEndTime,
         allowNightFlying, commenceNightFlying, ceaseNightFlying, buildDate,
         highestPriorityEvents, programWithPrimaries, traineeLMPs, flightTurnaround,
@@ -1644,7 +1645,7 @@ function generateDfpInternal(
         
         let resourceId: string | null = null;
         const resourcePrefix = type === 'flight' ? 'PC-21 ' : type === 'ftd' ? 'FTD ' : type === 'cpt' ? 'CPT ' : 'Ground ';
-        const resourceCount = type === 'flight' ? availableAircraftCount : type === 'ftd' ? availableFtdCount : type === 'cpt' ? availableCptCount : 6;
+        const resourceCount = type === 'flight' ? availableAircraftCount : type === 'ftd' ? ftdCount : type === 'cpt' ? cptCount : 6;
         
         for (let i = 1; i <= resourceCount; i++) {
             const id = `${resourcePrefix}${i}`;
@@ -3884,6 +3885,7 @@ const App: React.FC = () => {
             coursePercentages,
             availableAircraftCount,
             ftdCount: availableFtdCount,
+            cptCount: availableCptCount,
             courseColors,
             school,
             dayStart: flyingStartTime,
@@ -5045,8 +5047,8 @@ updates.forEach(update => {
                            traineesData={traineesData}
                            airframeCount={24}
                            standbyCount={4}
-                           ftdCount={ftdCount}
-                           cptCount={4}
+                           ftdCount={availableFtdCount}
+                           cptCount={availableCptCount}
                            onUpdateEvent={handleScheduleUpdate}
                            onSelectEvent={handleOpenModal}
                            onReorderResources={() => {}}
@@ -5266,8 +5268,8 @@ updates.forEach(update => {
                             traineesData={traineesData}
                             airframeCount={24}
                             standbyCount={4}
-                            ftdCount={ftdCount}
-                            cptCount={4}
+                            ftdCount={availableFtdCount}
+                            cptCount={availableCptCount}
                             onUpdateEvent={handleNextDayScheduleUpdate}
                             onSelectEvent={(e) => handleOpenModal({...e, date: buildDfpDate}, {})}
                             onReorderResources={() => {}}
