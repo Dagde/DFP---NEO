@@ -128,6 +128,84 @@ const CourseDistributionTable: React.FC<{ courseAnalysis: CourseAnalysis[] }> = 
     );
 };
 
+// Pie Chart Component
+const PieChart: React.FC<{ data: { label: string; value: number; color: string }[]; title: string }> = ({ data, title }) => {
+    const total = data.reduce((sum, item) => sum + item.value, 0);
+    
+    if (total === 0) {
+        return (
+            <div className="bg-gray-800 rounded-lg shadow-lg p-6 border border-gray-700">
+                <h2 className="text-xl font-semibold text-sky-400 mb-4">{title}</h2>
+                <p className="text-gray-400 text-center py-8">No data available</p>
+            </div>
+        );
+    }
+    
+    let currentAngle = -90; // Start from top
+    const segments = data.map(item => {
+        const percentage = (item.value / total) * 100;
+        const angle = (item.value / total) * 360;
+        const segment = {
+            ...item,
+            percentage,
+            startAngle: currentAngle,
+            endAngle: currentAngle + angle
+        };
+        currentAngle += angle;
+        return segment;
+    });
+    
+    return (
+        <div className="bg-gray-800 rounded-lg shadow-lg p-6 border border-gray-700">
+            <h2 className="text-xl font-semibold text-sky-400 mb-4">{title}</h2>
+            <div className="flex items-center justify-center gap-8">
+                {/* Pie Chart SVG */}
+                <svg width="200" height="200" viewBox="0 0 200 200" className="transform -rotate-90">
+                    {segments.map((segment, index) => {
+                        const startAngle = (segment.startAngle * Math.PI) / 180;
+                        const endAngle = (segment.endAngle * Math.PI) / 180;
+                        const x1 = 100 + 90 * Math.cos(startAngle);
+                        const y1 = 100 + 90 * Math.sin(startAngle);
+                        const x2 = 100 + 90 * Math.cos(endAngle);
+                        const y2 = 100 + 90 * Math.sin(endAngle);
+                        const largeArc = segment.percentage > 50 ? 1 : 0;
+                        
+                        return (
+                            <g key={index}>
+                                <path
+                                    d={`M 100 100 L ${x1} ${y1} A 90 90 0 ${largeArc} 1 ${x2} ${y2} Z`}
+                                    fill={segment.color}
+                                    stroke="#1f2937"
+                                    strokeWidth="2"
+                                    className="hover:opacity-80 transition-opacity"
+                                >
+                                    <title>{`${segment.label}: ${segment.value} (${segment.percentage.toFixed(1)}%)`}</title>
+                                </path>
+                            </g>
+                        );
+                    })}
+                </svg>
+                
+                {/* Legend */}
+                <div className="space-y-2">
+                    {segments.map((segment, index) => (
+                        <div key={index} className="flex items-center gap-2">
+                            <div 
+                                className="w-4 h-4 rounded" 
+                                style={{ backgroundColor: segment.color }}
+                            />
+                            <span className="text-sm text-gray-300">
+                                {segment.label}: <span className="font-semibold text-white">{segment.value}</span>
+                                <span className="text-gray-500 ml-1">({segment.percentage.toFixed(1)}%)</span>
+                            </span>
+                        </div>
+                    ))}
+                </div>
+            </div>
+        </div>
+    );
+};
+
 // Time Distribution Chart Component
 const TimeDistributionChart: React.FC<{ timeDistribution: TimeDistribution }> = ({ timeDistribution }) => {
     // Convert eventsByHour to Map if it's not already (handles serialization)
@@ -136,6 +214,7 @@ const TimeDistributionChart: React.FC<{ timeDistribution: TimeDistribution }> = 
         : new Map(Object.entries(timeDistribution.eventsByHour as any).map(([k, v]) => [parseInt(k), v as number]));
     
     const maxEvents = Math.max(...Array.from(eventsByHour.values()), 0);
+    const hours = Array.from({ length: 24 }, (_, i) => i).filter(hour => eventsByHour.get(hour) && eventsByHour.get(hour)! > 0);
     
     return (
         <div className="bg-gray-800 rounded-lg shadow-lg p-6 border border-gray-700">
@@ -143,21 +222,20 @@ const TimeDistributionChart: React.FC<{ timeDistribution: TimeDistribution }> = 
             <p className="text-gray-400 mb-4">
                 Uniformity Score: <span className="text-sky-400 font-semibold">{(timeDistribution.uniformityScore * 100).toFixed(0)}%</span>
             </p>
-            <div className="flex items-end justify-between h-64 gap-1">
-                {Array.from({ length: 24 }, (_, hour) => {
+            <div className="relative h-64 flex items-end justify-start gap-2 px-4">
+                {hours.map((hour) => {
                     const count = eventsByHour.get(hour) || 0;
-                    const height = maxEvents > 0 ? (count / maxEvents) * 100 : 0;
-                    
-                    if (count === 0) return null;
+                    const heightPercent = maxEvents > 0 ? (count / maxEvents) * 100 : 0;
+                    const heightPx = maxEvents > 0 ? (count / maxEvents) * 240 : 0; // 240px = h-60
                     
                     return (
-                        <div key={hour} className="flex-1 flex flex-col items-center justify-end">
+                        <div key={hour} className="flex flex-col items-center justify-end flex-1 min-w-[40px]">
                             <div 
-                                className="w-full bg-sky-500 rounded-t transition-all hover:bg-sky-400"
-                                style={{ height: `${height}%` }}
+                                className="w-full bg-sky-500 rounded-t transition-all hover:bg-sky-400 flex items-start justify-center"
+                                style={{ height: `${heightPx}px`, minHeight: '30px' }}
                                 title={`${hour.toString().padStart(2, '0')}:00 - ${count} events`}
                             >
-                                <div className="text-xs text-white font-semibold text-center pt-1">{count}</div>
+                                <div className="text-xs text-white font-semibold pt-1">{count}</div>
                             </div>
                             <div className="text-xs text-gray-400 mt-1">{hour.toString().padStart(2, '0')}</div>
                         </div>
@@ -366,6 +444,26 @@ const BuildAnalysisView: React.FC<BuildAnalysisViewProps> = ({ buildDate, analys
                 
                 {/* Limiting Factors */}
                 <LimitingFactorsSection courseAnalysis={analysis.courseAnalysis} />
+                
+                {/* Pie Charts - Flight Events and Total Events per Course */}
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                    <PieChart 
+                        title="Flight Events per Course"
+                        data={analysis.courseAnalysis.map((course, index) => ({
+                            label: course.courseName,
+                            value: course.eventsByType.flight,
+                            color: `hsl(${(index * 360) / analysis.courseAnalysis.length}, 70%, 60%)`
+                        }))}
+                    />
+                    <PieChart 
+                        title="Total Events per Course"
+                        data={analysis.courseAnalysis.map((course, index) => ({
+                            label: course.courseName,
+                            value: course.scheduledEvents,
+                            color: `hsl(${(index * 360) / analysis.courseAnalysis.length}, 70%, 60%)`
+                        }))}
+                    />
+                </div>
                 
                 {/* Time Distribution Chart */}
                 <TimeDistributionChart timeDistribution={analysis.timeDistribution} />
