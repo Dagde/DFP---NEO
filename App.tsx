@@ -2216,7 +2216,7 @@ function generateDfpInternal(
                 duration: next.duration,
                 startTime: time,
                 resourceId: `STBY ${stbyLine}`,
-                color: 'bg-yellow-500/50',
+                color: courseColors[trainee.course] || 'bg-gray-500',
                 flightType: 'Dual',
                 locationType: 'Local',
                 origin: school,
@@ -2270,7 +2270,7 @@ function generateDfpInternal(
                 duration: next.duration,
                 startTime: time,
                 resourceId: `STBY ${stbyLine}`,
-                color: 'bg-yellow-500/50',
+                color: courseColors[trainee.course] || 'bg-gray-500',
                 flightType: 'Dual',
                 locationType: 'Local',
                 origin: school,
@@ -2719,7 +2719,7 @@ const App: React.FC = () => {
             }
         }
         
-        const resources = [
+        const allResources = [
             ...pc21Resources,
             'Duty Sup',
             ...Array.from({ length: stbyLineCount }, (_, i) => `STBY ${i + 1}`),
@@ -2728,9 +2728,54 @@ const App: React.FC = () => {
             ...Array.from({ length: 6 }, (_, i) => `Ground ${i + 1}`),
         ];
         
-        console.log('Built resources:', resources, 'STBY lines:', stbyLineCount);
-        return resources;
+        console.log('Built all resources:', allResources, 'STBY lines:', stbyLineCount);
+        return allResources;
     }, [availableFtdCount, availableCptCount, availableAircraftCount, date, activeView, publishedSchedules, nextDayBuildEvents]);
+    
+    // Filter resources to only show those with events (for schedule views)
+    const getFilteredResources = useCallback((events: ScheduleEvent[], allResources: string[]) => {
+        // Safety check: if no events, return empty array
+        if (!events || events.length === 0) {
+            console.log('No events, returning empty resources');
+            return [];
+        }
+        
+        // Map each event to its resource category label
+        const resourceLabels: string[] = [];
+        
+        for (const event of events) {
+            // Safety check for event and resourceId
+            if (!event || !event.resourceId) {
+                console.warn('Skipping invalid event:', event);
+                continue;
+            }
+            
+            const resourceId = event.resourceId;
+            
+            // Determine the category for this event
+            let category = 'Unknown';
+            if (resourceId.startsWith('PC-21') || resourceId.startsWith('Deployed')) {
+                category = 'PC-21';
+            } else if (resourceId === 'Duty Sup') {
+                category = 'Duty Sup';
+            } else if (resourceId.startsWith('STBY') || resourceId.startsWith('BNF-STBY')) {
+                category = 'STBY';
+            } else if (resourceId.startsWith('FTD')) {
+                category = 'FTD';
+            } else if (resourceId.startsWith('CPT')) {
+                category = 'CPT';
+            } else if (resourceId.startsWith('Ground')) {
+                category = 'Ground';
+            } else {
+                category = resourceId; // Fallback to actual resource ID
+            }
+            
+            resourceLabels.push(category);
+        }
+        
+        console.log('Resource labels (one per event):', resourceLabels.slice(0, 30));
+        return resourceLabels;
+    }, []);
     
     useEffect(() => {
         const init = async () => {

@@ -678,6 +678,7 @@ export const NextDayBuildView: React.FC<NextDayBuildViewProps> = ({
                         standbyCount={standbyCount}
                         ftdCount={ftdCount}
                         cptCount={cptCount}
+                        events={events}
                     />
                 </div>
 

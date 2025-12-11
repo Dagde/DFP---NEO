@@ -777,6 +777,7 @@ const ScheduleView: React.FC<ScheduleViewProps> = ({
                         standbyCount={standbyCount}
                         ftdCount={ftdCount}
                         cptCount={cptCount}
+                        events={events}
                     />
                 </div>
 

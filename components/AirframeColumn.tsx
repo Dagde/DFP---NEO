@@ -1,4 +1,3 @@
-
 import React, { useState } from 'react';
 
 interface AirframeColumnProps {
@@ -9,10 +8,12 @@ interface AirframeColumnProps {
   standbyCount: number;
   ftdCount: number;
   cptCount: number;
+  events?: any[]; // Add events prop to filter resources
 }
 
 // Helper to determine resource category
 const getCategory = (res: string) => {
+    if (!res || typeof res !== 'string') return 'Other';
     if (res.startsWith('PC-21') || res.startsWith('Deployed')) return 'PC-21';
     if (res.startsWith('STBY')) return 'STBY';
     if (res === 'Duty Sup') return 'Duty Sup';
@@ -22,7 +23,7 @@ const getCategory = (res: string) => {
     return 'Other';
 };
 
-const AirframeColumn: React.FC<AirframeColumnProps> = ({ resources, onReorder, rowHeight, airframeCount, standbyCount, ftdCount, cptCount }) => {
+const AirframeColumn: React.FC<AirframeColumnProps> = ({ resources, onReorder, rowHeight, airframeCount, standbyCount, ftdCount, cptCount, events = [] }) => {
   const [draggedIndex, setDraggedIndex] = useState<number | null>(null);
 
   const handleDragStart = (index: number) => {
@@ -47,49 +48,80 @@ const AirframeColumn: React.FC<AirframeColumnProps> = ({ resources, onReorder, r
     setDraggedIndex(null);
   };
 
+  // Build the resource list with fixed sections
+  const displayResources: string[] = [];
+  
+  // 1. Always add PC-21 1-24 (FIXED - 24 lines)
+  for (let i = 1; i <= 24; i++) {
+    displayResources.push(`PC-21 ${i}`);
+  }
+  
+  // 2. Always add Duty Sup (FIXED - 1 line)
+  displayResources.push('Duty Sup');
+  
+  // 3. Add STBY lines based on actual STBY events (VARIABLE)
+  if (events.length > 0) {
+    const stbyEvents = events.filter(event => 
+      event?.resourceId && (event.resourceId.startsWith('STBY') || event.resourceId.startsWith('BNF-STBY'))
+    );
+    const uniqueStbyLines = new Set(stbyEvents.map(e => e.resourceId));
+    uniqueStbyLines.forEach(() => displayResources.push('STBY'));
+  }
+  
+  // 4. Always add 5 FTD lines (FIXED - 5 lines)
+  for (let i = 0; i < 5; i++) {
+    displayResources.push('FTD');
+  }
+  
+  // 5. Always add 4 CPT lines (FIXED - 4 lines)
+  for (let i = 0; i < 4; i++) {
+    displayResources.push('CPT');
+  }
+  
+  // 6. Add Ground lines based on actual Ground events (VARIABLE)
+  if (events.length > 0) {
+    const groundEvents = events.filter(event => 
+      event?.resourceId && event.resourceId.startsWith('Ground')
+    );
+    const uniqueGroundLines = new Set(groundEvents.map(e => e.resourceId));
+    uniqueGroundLines.forEach(() => displayResources.push('Ground'));
+  }
+
   return (
     <div className="w-36 bg-gray-800 flex-shrink-0 h-full">
       <ul>
-        {resources.map((resource, index) => {
-            const isAircraft = index < airframeCount;
-            const isStandby = index >= airframeCount && index < airframeCount + standbyCount;
-            const isFtd = index >= airframeCount + standbyCount + 1 && index < airframeCount + standbyCount + 1 + ftdCount;
-            const isCpt = index >= airframeCount + standbyCount + 1 + ftdCount && index < airframeCount + standbyCount + 1 + ftdCount + cptCount;
-            // isGround is the else case
-
-            let resourceText: string;
+        {displayResources.map((resource, index) => {
+            // Resource is already the display text (PC-21 1-24, Duty Sup, STBY, FTD, CPT, Ground)
+            let resourceText: string = resource;
             let textColorClass = 'text-gray-400';
             let isDraggable = true;
 
-            const resourceNumber = resource.match(/\d+$/)?.[0] || '';
-
+            // Set colors and draggability based on resource type
             if (resource === 'Duty Sup') {
-                resourceText = 'Duty Sup';
                 textColorClass = 'text-amber-300 font-semibold';
                 isDraggable = false;
             } else if (resource.startsWith('Deployed')) {
-                resourceText = resource; // Show full "Deployed X" text
                 textColorClass = 'text-purple-300 font-semibold';
                 isDraggable = false;
-            } else if (isAircraft) {
-                resourceText = 'PC-21';
-            } else if (isStandby) {
-                resourceText = 'STBY';
+            } else if (resource.startsWith('PC-21')) {
+                textColorClass = 'text-gray-400';
+                isDraggable = true;
+            } else if (resource === 'STBY') {
+                textColorClass = 'text-gray-400';
                 isDraggable = false;
-            } else if (isFtd) {
-                resourceText = resource.replace(/\s*\d+$/, '');
+            } else if (resource === 'FTD') {
                 textColorClass = 'text-indigo-300';
-            } else if (isCpt) {
-                resourceText = resource.replace(/\s*\d+$/, '');
+                isDraggable = true;
+            } else if (resource === 'CPT') {
                 textColorClass = 'text-cyan-300';
                 isDraggable = false;
-            } else { // isGround
-                resourceText = 'Ground';
+            } else if (resource === 'Ground') {
+                textColorClass = 'text-gray-400';
                 isDraggable = false;
             }
 
             const currentCategory = getCategory(resource);
-            const prevCategory = index > 0 ? getCategory(resources[index - 1]) : currentCategory;
+            const prevCategory = index > 0 ? getCategory(displayResources[index - 1]) : currentCategory;
             const isCategoryStart = index > 0 && currentCategory !== prevCategory;
 
             const baseClasses = "flex items-center justify-center text-xs font-mono transition-all duration-150";
@@ -105,7 +137,7 @@ const AirframeColumn: React.FC<AirframeColumnProps> = ({ resources, onReorder, r
           
           return (
             <li
-              key={resource}
+              key={`${resource}-${index}`}
               draggable={isDraggable}
               onDragStart={() => isDraggable && handleDragStart(index)}
               onDragOver={handleDragOver}
@@ -114,13 +146,15 @@ const AirframeColumn: React.FC<AirframeColumnProps> = ({ resources, onReorder, r
               className={`${baseClasses} ${textColorClass} ${cursorClass} ${borderClass} ${hoverClass} ${dragClass}`}
               style={{ height: rowHeight }}
             >
-              {(resource === 'Duty Sup' || resource.startsWith('Deployed')) ? (
-                  <div className="w-full text-center">
-                      <span>{resourceText}</span>
+              {resource.startsWith('PC-21') ? (
+                  <div className="relative w-full text-center">
+                      <span className="absolute left-1 top-1/2 -translate-y-1/2 text-gray-400 text-xs">
+                          {resource.match(/\d+$/)?.[0] || ''}
+                      </span>
+                      <span>PC-21</span>
                   </div>
               ) : (
-                  <div className="relative w-full text-center">
-                      <span className="absolute left-1 top-1/2 -translate-y-1/2 text-gray-500">{resourceNumber}</span>
+                  <div className="w-full text-center">
                       <span>{resourceText}</span>
                   </div>
               )}
