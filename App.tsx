@@ -1995,14 +1995,46 @@ function generateDfpInternal(
         );
     };
     
-    // Helper: Count FLIGHT start times in the previous 60 minutes (aircraft + STBY, excluding FTD/CPT/Ground)
-    const countFlightStartsInPreviousHour = (time: number, events: Omit<ScheduleEvent, 'date'>[]): number => {
-        const oneHourBefore = time - 1.0;
+    // Helper: Count FLIGHT start times in a 60-minute window (aircraft + STBY, excluding FTD/CPT/Ground)
+    const countFlightStartsInWindow = (windowStart: number, windowEnd: number, events: Omit<ScheduleEvent, 'date'>[]): number => {
         return events.filter(e => 
             e.type === 'flight' && 
-            e.startTime > oneHourBefore && 
-            e.startTime <= time
+            e.startTime > windowStart && 
+            e.startTime <= windowEnd
         ).length;
+    };
+    
+    // Helper: Check if adding a flight at this time would violate the 8-per-hour rule
+    // Must check both backward (previous 60 min) and forward (impact on future DFP flights)
+    const wouldViolate8PerHourRule = (time: number, events: Omit<ScheduleEvent, 'date'>[]): boolean => {
+        // Check 1: Would adding this flight create more than 8 in the previous 60 minutes?
+        const oneHourBefore = time - 1.0;
+        const flightsInPreviousHour = countFlightStartsInWindow(oneHourBefore, time, events);
+        if (flightsInPreviousHour >= 8) return true; // Already at limit
+        
+        // Check 2: Would adding this flight cause any future 60-minute window to exceed 8?
+        // Look at all existing DFP flights (not STBY) that are within 60 minutes after this time
+        const oneHourAfter = time + 1.0;
+        const futureDfpFlights = events.filter(e => 
+            e.type === 'flight' && 
+            !e.resourceId.startsWith('STBY') &&
+            e.startTime > time && 
+            e.startTime <= oneHourAfter
+        );
+        
+        // For each future DFP flight, check if adding our STBY flight would cause that window to exceed 8
+        for (const dfpFlight of futureDfpFlights) {
+            const windowStart = dfpFlight.startTime - 1.0;
+            const windowEnd = dfpFlight.startTime;
+            const flightsInWindow = countFlightStartsInWindow(windowStart, windowEnd, events);
+            
+            // If adding our STBY flight at 'time' would be counted in this window
+            if (time > windowStart && time <= windowEnd) {
+                if (flightsInWindow >= 8) return true; // Would exceed limit
+            }
+        }
+        
+        return false; // No violation
     };
     
     // Helper: Check if instructor is available for entire event duration
@@ -2144,9 +2176,8 @@ function generateDfpInternal(
         const flightEndTime = time + next.duration;
         if (flightEndTime > flyingEndTime) continue;
         
-        // Check "8 flights per hour" rule
-        const flightStartsInPreviousHour = countFlightStartsInPreviousHour(time, generatedEvents);
-        if (flightStartsInPreviousHour >= 8) continue;
+        // Check "8 flights per hour" rule (rolling 60-minute windows)
+        if (wouldViolate8PerHourRule(time, generatedEvents)) continue;
         
         // Find available instructor
         const instructor = findBestInstructorForStby(trainee, next, time, next.duration, 'flight', generatedEvents);
