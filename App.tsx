@@ -2294,6 +2294,7 @@ function generateDfpInternal(
     
     
     // FTD STBY SCHEDULING - Handle unscheduled FTD events
+    // Events are spread evenly throughout the day with proper turnaround times
     setProgress({ message: 'Scheduling STBY FTD events...', percentage: 90 });
     
     const traineesNeedingStbyFtd = nextEventLists.ftd.filter(trainee => {
@@ -2310,101 +2311,83 @@ function generateDfpInternal(
     
     console.log('Trainees needing STBY FTD events:', traineesNeedingStbyFtd.length);
     
-    const scheduledFtdTrainees = new Set<string>();
-    
-    // PASS 1: Schedule STBY FTD events with instructors available
-    console.log('FTD PASS 1: Scheduling STBY FTD with instructors available...');
-    
-    for (const trainee of traineesNeedingStbyFtd) {
-        const { next } = traineeNextEventMap.get(trainee.fullName)!;
-        if (!next) continue;
+    if (traineesNeedingStbyFtd.length > 0) {
+        // Calculate even distribution across the flying window
+        const flyingWindowDuration = flyingEndTime - flyingStartTime;
+        const numFtdEvents = traineesNeedingStbyFtd.length;
         
-        let placed = false;
-        for (let time = flyingStartTime; time < flyingEndTime; time += timeIncrement) {
-            const eventEndTime = time + next.duration;
-            if (eventEndTime > flyingEndTime) continue;
+        // Calculate spacing to distribute events evenly
+        // Use the larger of: even spacing or minimum turnaround time
+        const evenSpacing = flyingWindowDuration / (numFtdEvents + 1);
+        const minSpacing = ftdTurnaround;
+        const spacing = Math.max(evenSpacing, minSpacing);
+        
+        console.log(`FTD STBY: Distributing ${numFtdEvents} events with ${spacing.toFixed(2)}hr spacing`);
+        
+        let currentTime = flyingStartTime + spacing;
+        
+        for (const trainee of traineesNeedingStbyFtd) {
+            const { next } = traineeNextEventMap.get(trainee.fullName)!;
+            if (!next) continue;
             
-            // Try to find available instructor
-            const instructor = findBestInstructorForStby(trainee, next, time, next.duration, 'ftd', generatedEvents);
+            // Find next available time slot that doesn't conflict with flights
+            let placed = false;
+            let attemptTime = currentTime;
             
-            if (!instructor) continue;
+            while (attemptTime + next.duration <= flyingEndTime && !placed) {
+                // Check if this time conflicts with any FLIGHT events
+                const hasFlightConflict = generatedEvents.some(e => {
+                    if (e.type !== 'flight') return false;
+                    const eventEnd = e.startTime + e.duration;
+                    const proposedEnd = attemptTime + next.duration;
+                    return attemptTime < eventEnd && proposedEnd > e.startTime;
+                });
+                
+                if (!hasFlightConflict) {
+                    // Try to find available instructor
+                    const instructor = findBestInstructorForStby(trainee, next, attemptTime, next.duration, 'ftd', generatedEvents);
+                    
+                    // Find available STBY line
+                    const stbyLine = findAvailableStbyLine(attemptTime, next.duration, generatedEvents, 'STBY');
+                    
+                    // Create STBY FTD event
+                    generatedEvents.push({
+                        id: uuidv4(),
+                        type: 'ftd',
+                        instructor: instructor || 'TBA',
+                        student: trainee.fullName,
+                        flightNumber: next.id,
+                        duration: next.duration,
+                        startTime: attemptTime,
+                        resourceId: `STBY ${stbyLine}`,
+                        color: courseColors[trainee.course] || 'bg-gray-500',
+                        flightType: 'Dual',
+                        locationType: 'Local',
+                        origin: school,
+                        destination: school,
+                        preStart: next.preFlightTime,
+                        postEnd: next.postFlightTime
+                    });
+                    
+                    console.log(`FTD STBY: Placed ${trainee.fullName} at ${attemptTime.toFixed(2)}, instructor: ${instructor || 'TBA'}`);
+                    
+                    // Move to next time slot with spacing
+                    currentTime = attemptTime + next.duration + spacing;
+                    placed = true;
+                } else {
+                    // Move forward by 15 minutes and try again
+                    attemptTime += 0.25;
+                }
+            }
             
-            // Find available STBY line
-            const stbyLine = findAvailableStbyLine(time, next.duration, generatedEvents, 'STBY');
-            
-            // Create STBY FTD event with instructor
-            generatedEvents.push({
-                id: uuidv4(),
-                type: 'ftd',
-                instructor: instructor,
-                student: trainee.fullName,
-                flightNumber: next.id,
-                duration: next.duration,
-                startTime: time,
-                resourceId: `STBY ${stbyLine}`,
-                color: courseColors[trainee.course] || 'bg-gray-500',
-                flightType: 'Dual',
-                locationType: 'Local',
-                origin: school,
-                destination: school,
-                preStart: next.preFlightTime,
-                postEnd: next.postFlightTime
-            });
-            
-            console.log(`FTD PASS 1: STBY at ${time.toFixed(2)} for ${trainee.fullName}, instructor: ${instructor}`);
-            scheduledFtdTrainees.add(trainee.fullName);
-            placed = true;
-            break;
+            if (!placed) {
+                console.log(`FTD STBY: Could not place ${trainee.fullName} - no available slots`);
+            }
         }
         
-        if (!placed) {
-            console.log(`FTD PASS 1: Could not place ${trainee.fullName} anywhere in flying window`);
-        }
+        console.log(`FTD STBY complete: Placed ${traineesNeedingStbyFtd.length} events`);
     }
     
-    console.log(`FTD PASS 1 complete: ${scheduledFtdTrainees.size} STBY FTD events with instructors`);
-    
-    // PASS 2: Schedule remaining FTD trainees with TBA
-    console.log('FTD PASS 2: Scheduling remaining STBY FTD with TBA...');
-    const remainingFtdTrainees = traineesNeedingStbyFtd.filter(t => !scheduledFtdTrainees.has(t.fullName));
-    console.log(`Remaining trainees needing STBY FTD: ${remainingFtdTrainees.length}`);
-    
-    for (const trainee of remainingFtdTrainees) {
-        const { next } = traineeNextEventMap.get(trainee.fullName)!;
-        if (!next) continue;
-        
-        for (let time = flyingStartTime; time < flyingEndTime; time += timeIncrement) {
-            const eventEndTime = time + next.duration;
-            if (eventEndTime > flyingEndTime) continue;
-            
-            const stbyLine = findAvailableStbyLine(time, next.duration, generatedEvents, 'STBY');
-            
-            // Create STBY FTD event with TBA
-            generatedEvents.push({
-                id: uuidv4(),
-                type: 'ftd',
-                instructor: 'TBA',
-                student: trainee.fullName,
-                flightNumber: next.id,
-                duration: next.duration,
-                startTime: time,
-                resourceId: `STBY ${stbyLine}`,
-                color: courseColors[trainee.course] || 'bg-gray-500',
-                flightType: 'Dual',
-                locationType: 'Local',
-                origin: school,
-                destination: school,
-                preStart: next.preFlightTime,
-                postEnd: next.postFlightTime
-            });
-            
-            console.log(`FTD PASS 2: STBY at ${time.toFixed(2)} for ${trainee.fullName}, instructor: TBA`);
-            scheduledFtdTrainees.add(trainee.fullName);
-            break;
-        }
-    }
-    
-    console.log(`FTD PASS 2 complete: Total STBY FTD events: ${scheduledFtdTrainees.size}`);
     setProgress({ message: 'Shuffling events for distribution...', percentage: 95 });
     
     // Helper: Shuffle array randomly (Fisher-Yates algorithm)
