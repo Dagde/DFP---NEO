@@ -1315,19 +1315,19 @@ function generateDfpInternal(
             unplacedTrainees = remainingForNextPass;
         }
 
+        // NEW STBY LOGIC: Place events at their original scheduled time when no aircraft available
         if (standbyPrefix && (type === 'flight' || type === 'ftd')) {
-            // Track STBY events by line (1-4) with their end times
-            const stbyLines: { lineNumber: number; nextAvailableTime: number }[] = [
-                { lineNumber: 1, nextAvailableTime: startTimeBoundary },
-                { lineNumber: 2, nextAvailableTime: startTimeBoundary },
-                { lineNumber: 3, nextAvailableTime: startTimeBoundary },
-                { lineNumber: 4, nextAvailableTime: startTimeBoundary }
-            ];
+            // Track STBY attempts with their original scheduling details
+            const stbyAttempts: Array<{
+                trainee: Trainee;
+                syllabusItem: SyllabusItemDetail;
+                time: number;
+                instructor: string;
+                isPlusOne: boolean;
+            }> = [];
             
-            const GAP_DURATION = 15 / 60; // 15 minutes in hours
-            let currentLineIndex = 0; // Start with line 1 (index 0)
-            
-            unplacedTrainees.forEach((trainee, index) => {
+            // Try to schedule each unplaced trainee and track when 'stby' is returned
+            unplacedTrainees.forEach((trainee) => {
                 const traineeCounts = eventCounts.get(trainee.fullName)!;
                 if (traineeCounts.flightFtd > 0 || traineeCounts.isStby) return;
 
@@ -1335,48 +1335,84 @@ function generateDfpInternal(
                 const syllabusItem = isPlusOne ? plusOne : next;
                 if (!syllabusItem) return;
 
-                const result = scheduleEvent(trainee, syllabusItem, startTimeBoundary, type, isNightPass, isPlusOne);
-                if (result === 'stby') {
-                    // Try to place on current line first
-                    let selectedLine = stbyLines[currentLineIndex];
-                    
-                    // Check if event fits on current line (before end of day window)
-                    if (selectedLine.nextAvailableTime + syllabusItem.duration > endTimeBoundary) {
-                        // Current line is full, move to next line
-                        currentLineIndex++;
-                        
-                        // If we've exhausted all 4 lines, wrap back to line 1 (but this shouldn't happen often)
-                        if (currentLineIndex >= stbyLines.length) {
-                            currentLineIndex = 0;
-                        }
-                        
-                        selectedLine = stbyLines[currentLineIndex];
+                let searchStartTime = startTimeBoundary;
+                
+                // Plus-One Rule: Start search after primary event
+                if (isPlusOne) {
+                    const nextEvent = generatedEvents.find(e => getPersonnel(e).includes(trainee.fullName) && e.flightNumber === next!.id);
+                    if (nextEvent) {
+                        searchStartTime = Math.max(startTimeBoundary, nextEvent.startTime + nextEvent.duration);
                     }
-                    
-                    const eventStartTime = selectedLine.nextAvailableTime;
-                    const stbyResourceId = `${standbyPrefix} ${selectedLine.lineNumber}`;
-                    
-                    generatedEvents.push({
-                        id: uuidv4(), 
-                        type: type, 
-                        instructor: 'TBD', 
-                        student: trainee.fullName,
-                        flightNumber: syllabusItem.id, 
-                        duration: syllabusItem.duration, 
-                        startTime: eventStartTime, 
-                        resourceId: stbyResourceId,
-                        color: standbyPrefix === 'STBY' ? 'bg-yellow-500/50' : 'bg-blue-800/70',
-                        flightType: 'Dual', 
-                        locationType: 'Local', 
-                        origin: school, 
-                        destination: school,
-                        authNotes: `P${index + 1}`
-                    });
-                    
-                    // Update the line's next available time (event end + 15 min gap)
-                    selectedLine.nextAvailableTime = eventStartTime + syllabusItem.duration + GAP_DURATION;
-                    traineeCounts.isStby = true;
                 }
+
+                // Try to find a valid time slot where all rules are satisfied except aircraft availability
+                for (let time = searchStartTime; time <= endTimeBoundary - syllabusItem.duration; time += timeIncrement) {
+                    const result = scheduleEvent(trainee, syllabusItem, time, type, isNightPass, isPlusOne);
+                    if (result === 'stby') {
+                        // Found a valid time but no aircraft - get the instructor that would have been assigned
+                        const instructor = findAvailableInstructor(trainee, syllabusItem, isPlusOne);
+                        if (instructor) {
+                            stbyAttempts.push({
+                                trainee,
+                                syllabusItem,
+                                time,
+                                instructor: instructor.name,
+                                isPlusOne
+                            });
+                            break; // Found valid STBY slot for this trainee
+                        }
+                    }
+                }
+            });
+
+            // Now place STBY events at their original times on available STBY lines
+            // Start with minimum 4 STBY lines, add more dynamically if needed
+            const stbyLines: Array<{ lineNumber: number; events: Array<{ start: number; end: number }> }> = [];
+            for (let i = 1; i <= 4; i++) {
+                stbyLines.push({ lineNumber: i, events: [] });
+            }
+
+            stbyAttempts.forEach((attempt, index) => {
+                const eventEnd = attempt.time + attempt.syllabusItem.duration;
+                
+                // Find a STBY line where this event doesn't conflict
+                let selectedLine = stbyLines.find(line => 
+                    !line.events.some(e => 
+                        (attempt.time < e.end && eventEnd > e.start) // Check for time overlap
+                    )
+                );
+
+                // If no existing line available, create a new one
+                if (!selectedLine) {
+                    const newLineNumber = stbyLines.length + 1;
+                    selectedLine = { lineNumber: newLineNumber, events: [] };
+                    stbyLines.push(selectedLine);
+                }
+
+                // Add event to the selected line
+                selectedLine.events.push({ start: attempt.time, end: eventEnd });
+
+                const stbyResourceId = `${standbyPrefix} ${selectedLine.lineNumber}`;
+                const traineeCounts = eventCounts.get(attempt.trainee.fullName)!;
+
+                generatedEvents.push({
+                    id: uuidv4(),
+                    type: type,
+                    instructor: attempt.instructor,
+                    student: attempt.trainee.fullName,
+                    flightNumber: attempt.syllabusItem.id,
+                    duration: attempt.syllabusItem.duration,
+                    startTime: attempt.time, // Use original scheduled time
+                    resourceId: stbyResourceId,
+                    color: standbyPrefix === 'STBY' ? 'bg-yellow-500/50' : 'bg-blue-800/70',
+                    flightType: 'Dual',
+                    locationType: 'Local',
+                    origin: school,
+                    destination: school,
+                    authNotes: `P${index + 1}`
+                });
+
+                traineeCounts.isStby = true;
             });
         }
     };
@@ -2380,16 +2416,51 @@ const App: React.FC = () => {
             return `PC-21 ${i + 1}`;
         });
         
+        // Calculate dynamic STBY line count based on actual STBY events
+        let stbyLineCount = 4; // Minimum 4 STBY lines
+        
+        // For next day build views, check how many STBY lines are actually used
+        if (['NextDayBuild', 'Priorities', 'ProgramData', 'NextDayInstructorSchedule', 'NextDayTraineeSchedule', 'BuildAnalysis'].includes(activeView)) {
+            const stbyEvents = nextDayBuildEvents.filter(e => 
+                e.resourceId.startsWith('STBY') || e.resourceId.startsWith('BNF-STBY')
+            );
+            
+            if (stbyEvents.length > 0) {
+                // Find the highest STBY line number used
+                const maxStbyLine = Math.max(...stbyEvents.map(e => {
+                    const match = e.resourceId.match(/STBY (\d+)/);
+                    return match ? parseInt(match[1]) : 0;
+                }));
+                
+                stbyLineCount = Math.max(4, maxStbyLine); // At least 4, or more if needed
+            }
+        } else {
+            // For published schedules, check the events for that date
+            const eventsForDate = publishedSchedules[date] || [];
+            const stbyEvents = eventsForDate.filter(e => 
+                e.resourceId.startsWith('STBY') || e.resourceId.startsWith('BNF-STBY')
+            );
+            
+            if (stbyEvents.length > 0) {
+                const maxStbyLine = Math.max(...stbyEvents.map(e => {
+                    const match = e.resourceId.match(/STBY (\d+)/);
+                    return match ? parseInt(match[1]) : 0;
+                }));
+                
+                stbyLineCount = Math.max(4, maxStbyLine);
+            }
+        }
+        
         const resources = [
             ...pc21Resources,
-            ...Array.from({ length: 4 }, (_, i) => `STBY ${i + 1}`),
+            ...Array.from({ length: stbyLineCount }, (_, i) => `STBY ${i + 1}`),
             'Duty Sup',
             ...Array.from({ length: availableFtdCount }, (_, i) => `FTD ${i + 1}`),
             ...Array.from({ length: availableCptCount }, (_, i) => `CPT ${i + 1}`),
             ...Array.from({ length: 6 }, (_, i) => `Ground ${i + 1}`),
         ];
         
-        console.log('Built resources:', resources);
+        console.log('Built resources:', resources, 'STBY lines:', stbyLineCount);
         return resources;
     }, [availableFtdCount, availableCptCount, availableAircraftCount, date, activeView, publishedSchedules, nextDayBuildEvents]);
     
