@@ -2408,6 +2408,12 @@ function generateDfpInternal(
         return a.startTime - b.startTime; // Then by start time within same resource
     });
     
+    // Log first 20 events to verify sorting
+    console.log('First 20 sorted events by resource:');
+    sortedEvents.slice(0, 20).forEach(e => {
+        console.log(`  ${e.resourceId}: ${e.student} at ${e.startTime.toFixed(2)}`);
+    });
+    
     setProgress({ message: 'Build complete!', percentage: 100 });
     return sortedEvents;
 }
