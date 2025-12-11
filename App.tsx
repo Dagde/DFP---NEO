@@ -2230,54 +2230,75 @@ function generateDfpInternal(
         return shuffled;
     };
     
-    // Shuffle events within each type to prevent clustering
+    // Shuffle events within each resource to prevent clustering
     // This ensures high-priority courses don't all cluster at the beginning of the day
+    // IMPORTANT: Events must stay grouped by their resourceId to match the resource column
     const shuffleEventsByType = (events: Omit<ScheduleEvent, 'date'>[]): Omit<ScheduleEvent, 'date'>[] => {
-        // Separate events by type and time window
-        const dayFlights = events.filter(e => 
-            e.type === 'flight' && 
-            !e.flightNumber.startsWith('BNF') &&
-            !e.resourceId.startsWith('STBY')
-        );
-        const nightFlights = events.filter(e => 
-            e.type === 'flight' && 
-            e.flightNumber.startsWith('BNF') &&
-            !e.resourceId.startsWith('BNF-STBY')
-        );
-        const ftdEvents = events.filter(e => 
-            e.type === 'ftd' &&
-            !e.resourceId.startsWith('STBY')
-        );
-        const cptEvents = events.filter(e => e.type === 'cpt');
-        const groundEvents = events.filter(e => 
-            e.type === 'ground' && 
-            !e.flightNumber.includes('Duty Sup')
-        );
+        // Group events by their resourceId
+        const eventsByResource = new Map<string, Omit<ScheduleEvent, 'date'>[]>();
         
-        // Keep these in order (don't shuffle)
-        const dutySupEvents = events.filter(e => e.flightNumber.includes('Duty Sup'));
-        const stbyEvents = events.filter(e => 
-            e.resourceId.startsWith('STBY') || 
-            e.resourceId.startsWith('BNF-STBY')
-        );
+        events.forEach(event => {
+            const resourceId = event.resourceId;
+            if (!eventsByResource.has(resourceId)) {
+                eventsByResource.set(resourceId, []);
+            }
+            eventsByResource.get(resourceId)!.push(event);
+        });
         
-        // Shuffle each group independently
-        const shuffledDayFlights = shuffleArray(dayFlights);
-        const shuffledNightFlights = shuffleArray(nightFlights);
-        const shuffledFtdEvents = shuffleArray(ftdEvents);
-        const shuffledCptEvents = shuffleArray(cptEvents);
-        const shuffledGroundEvents = shuffleArray(groundEvents);
+        // Shuffle events within each resource independently
+        const shuffledByResource = new Map<string, Omit<ScheduleEvent, 'date'>[]>();
+        eventsByResource.forEach((resourceEvents, resourceId) => {
+            // Don't shuffle Duty Sup events
+            if (resourceId === 'Duty Sup') {
+                shuffledByResource.set(resourceId, resourceEvents);
+            } else {
+                shuffledByResource.set(resourceId, shuffleArray(resourceEvents));
+            }
+        });
         
-        // Recombine in logical order
-        return [
-            ...dutySupEvents,           // Duty supervisors first (maintain order)
-            ...shuffledDayFlights,      // Day flights (shuffled)
-            ...shuffledNightFlights,    // Night flights (shuffled)
-            ...shuffledFtdEvents,       // FTD events (shuffled)
-            ...shuffledCptEvents,       // CPT events (shuffled)
-            ...shuffledGroundEvents,    // Ground events (shuffled)
-            ...stbyEvents               // Standby events last (maintain order)
-        ];
+        // Recombine events in resource order (matching buildResources order)
+        // Order: PC-21 aircraft → Duty Sup → STBY → FTD → CPT → Ground
+        const result: Omit<ScheduleEvent, 'date'>[] = [];
+        
+        // Add PC-21 events (PC-21 1 through PC-21 24, plus Deployed if any)
+        for (let i = 1; i <= 24; i++) {
+            const pc21Events = shuffledByResource.get(`PC-21 ${i}`) || [];
+            result.push(...pc21Events);
+        }
+        // Add any Deployed events
+        for (let i = 1; i <= 10; i++) {
+            const deployedEvents = shuffledByResource.get(`Deployed ${i}`) || [];
+            result.push(...deployedEvents);
+        }
+        
+        // Add Duty Sup events
+        result.push(...(shuffledByResource.get('Duty Sup') || []));
+        
+        // Add STBY events (STBY 1 through STBY N)
+        for (let i = 1; i <= 20; i++) { // Max 20 STBY lines
+            const stbyEvents = shuffledByResource.get(`STBY ${i}`) || [];
+            result.push(...stbyEvents);
+        }
+        
+        // Add FTD events
+        for (let i = 1; i <= 10; i++) { // Max 10 FTD
+            const ftdEvents = shuffledByResource.get(`FTD ${i}`) || [];
+            result.push(...ftdEvents);
+        }
+        
+        // Add CPT events
+        for (let i = 1; i <= 10; i++) { // Max 10 CPT
+            const cptEvents = shuffledByResource.get(`CPT ${i}`) || [];
+            result.push(...cptEvents);
+        }
+        
+        // Add Ground events
+        for (let i = 1; i <= 10; i++) { // Max 10 Ground
+            const groundEvents = shuffledByResource.get(`Ground ${i}`) || [];
+            result.push(...groundEvents);
+        }
+        
+        return result;
     };
     
     // Apply shuffle to prevent clustering
