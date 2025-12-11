@@ -1315,105 +1315,10 @@ function generateDfpInternal(
             unplacedTrainees = remainingForNextPass;
         }
 
-        // STBY LOGIC: Place events at their original scheduled time with assigned instructor
-        if (standbyPrefix && (type === 'flight' || type === 'ftd')) {
-            // Track STBY attempts with their scheduling details
-            const stbyAttempts: Array<{
-                trainee: Trainee;
-                syllabusItem: SyllabusItemDetail;
-                time: number;
-                instructor: string;
-                isPlusOne: boolean;
-            }> = [];
-            
-            // Try to schedule each unplaced trainee
-            unplacedTrainees.forEach((trainee) => {
-                const traineeCounts = eventCounts.get(trainee.fullName)!;
-                if (traineeCounts.flightFtd > 0 || traineeCounts.isStby) return;
-
-                const { next, plusOne } = traineeNextEventMap.get(trainee.fullName)!;
-                const syllabusItem = isPlusOne ? plusOne : next;
-                if (!syllabusItem) return;
-
-                let searchStartTime = startTimeBoundary;
-                
-                // Plus-One Rule: Start search after primary event
-                if (isPlusOne) {
-                    const nextEvent = generatedEvents.find(e => getPersonnel(e).includes(trainee.fullName) && e.flightNumber === next!.id);
-                    if (nextEvent) {
-                        searchStartTime = Math.max(startTimeBoundary, nextEvent.startTime + nextEvent.duration);
-                    }
-                }
-
-                // Try to find a valid time slot
-                for (let time = searchStartTime; time <= endTimeBoundary - syllabusItem.duration; time += timeIncrement) {
-                    const result = scheduleEvent(trainee, syllabusItem, time, type, isNightPass, isPlusOne);
-                    if (result && typeof result === 'object' && result.type === 'stby') {
-                        // Found valid time with instructor but no aircraft
-                        stbyAttempts.push({
-                            trainee,
-                            syllabusItem,
-                            time: result.time,
-                            instructor: result.instructor,
-                            isPlusOne
-                        });
-                        break;
-                    }
-                }
-            });
-
-            // Place STBY events at their original times on available STBY lines
-            const stbyLines: Array<{ lineNumber: number; events: Array<{ start: number; end: number }> }> = [];
-            for (let i = 1; i <= 4; i++) {
-                stbyLines.push({ lineNumber: i, events: [] });
-            }
-
-            stbyAttempts.forEach((attempt, index) => {
-                const eventEnd = attempt.time + attempt.syllabusItem.duration;
-                
-                // Find a STBY line where this event doesn't conflict
-                let selectedLine = stbyLines.find(line => 
-                    !line.events.some(e => 
-                        (attempt.time < e.end && eventEnd > e.start)
-                    )
-                );
-
-                // If no existing line available, create a new one
-                if (!selectedLine) {
-                    const newLineNumber = stbyLines.length + 1;
-                    selectedLine = { lineNumber: newLineNumber, events: [] };
-                    stbyLines.push(selectedLine);
-                }
-
-                // Add event to the selected line
-                selectedLine.events.push({ start: attempt.time, end: eventEnd });
-
-                const stbyResourceId = `${standbyPrefix} ${selectedLine.lineNumber}`;
-                const traineeCounts = eventCounts.get(attempt.trainee.fullName)!;
-
-                generatedEvents.push({
-                    id: uuidv4(),
-                    type: type,
-                    instructor: attempt.instructor,
-                    student: attempt.trainee.fullName,
-                    flightNumber: attempt.syllabusItem.id,
-                    duration: attempt.syllabusItem.duration,
-                    startTime: attempt.time,
-                    resourceId: stbyResourceId,
-                    color: standbyPrefix === 'STBY' ? 'bg-yellow-500/50' : 'bg-blue-800/70',
-                    flightType: 'Dual',
-                    locationType: 'Local',
-                    origin: school,
-                    destination: school,
-                    authNotes: `P${index + 1}`
-                });
-
-                traineeCounts.isStby = true;
-            });
-        }
+        // OLD STBY LOGIC REMOVED - Will be replaced with separate STBY pass after main build
     };
     
-    type ScheduleEventResult = Omit<ScheduleEvent, 'date'> | { type: 'stby'; instructor: string; time: number } | null;
+    type ScheduleEventResult = Omit<ScheduleEvent, 'date'> | null;
     
     const scheduleEvent = (
         trainee: Trainee,
@@ -1716,10 +1621,7 @@ function generateDfpInternal(
             if (!resourceIsOccupied) { resourceId = id; break; }
         }
         
-        // Check if event should go to STBY first (no resource available)
-        if ((type === 'flight' || type === 'ftd') && !resourceId) {
-            return { type: 'stby', instructor: instructor.name, time: startTime };
-        }
+        // If no resource available, return null (STBY will be handled in separate pass)
         if (!resourceId) return null;
         
         let area: string | undefined = undefined;
@@ -1963,7 +1865,7 @@ function generateDfpInternal(
         false, 
         flyingStartTime, 
         flyingEndTime, 
-        'STBY', 
+        null, 
         false
     );
     
@@ -1975,7 +1877,7 @@ function generateDfpInternal(
          
          // Schedule Night Flight Next Events (Wave One)
          const bnfWaveOneList = applyCoursePriority(nextEventLists.bnf);
-         scheduleList(bnfWaveOneList, 'flight', false, commenceNightFlying, ceaseNightFlying, 'BNF-STBY', true);
+         scheduleList(bnfWaveOneList, 'flight', false, commenceNightFlying, ceaseNightFlying, null, true);
     }
     
     // 5. Schedule FTD Events: a) Highest Priority, b) Next Events
@@ -1989,7 +1891,7 @@ function generateDfpInternal(
         false, 
         flyingStartTime, 
         flyingEndTime, 
-        'STBY', 
+        null, 
         false
     );
     
@@ -2043,7 +1945,7 @@ function generateDfpInternal(
             const { plusOne } = traineeNextEventMap.get(trainee.fullName) || { plusOne: null };
             return plusOne && plusOne.code.startsWith('BNF') && plusOne.type === 'Flight';
          });
-         scheduleList(bnfWaveTwoList, 'flight', true, commenceNightFlying, ceaseNightFlying, 'BNF-STBY', true);
+         scheduleList(bnfWaveTwoList, 'flight', true, commenceNightFlying, ceaseNightFlying, null, true);
     }
     
     // 8. Schedule FTD Events: Plus-One
@@ -2081,6 +1983,241 @@ function generateDfpInternal(
         false
     );
 
+    // NEW STBY SCHEDULING PASS - Runs after main build is complete
+    setProgress({ message: 'Scheduling STBY events...', percentage: 88 });
+    
+    // Helper: Check if a start time already exists anywhere in the schedule
+    const hasExistingStartTime = (time: number, events: Omit<ScheduleEvent, 'date'>[]): boolean => {
+        return events.some(e => Math.abs(e.startTime - time) < 0.01); // Within 0.6 minutes
+    };
+    
+    // Helper: Count start times in the previous 60 minutes
+    const countStartsInPreviousHour = (time: number, events: Omit<ScheduleEvent, 'date'>[]): number => {
+        const oneHourBefore = time - 1.0;
+        return events.filter(e => e.startTime > oneHourBefore && e.startTime <= time).length;
+    };
+    
+    // Helper: Check if instructor is available for entire event duration
+    const isInstructorAvailableForEvent = (
+        instructorName: string,
+        startTime: number,
+        duration: number,
+        syllabusItem: SyllabusItemDetail,
+        events: Omit<ScheduleEvent, 'date'>[]
+    ): boolean => {
+        const preTime = syllabusItem.preFlightTime || 0;
+        const postTime = syllabusItem.postFlightTime || 0;
+        const eventStart = startTime - preTime;
+        const eventEnd = startTime + duration + postTime;
+        
+        // Check for overlaps with existing events
+        return !events.some(e => {
+            if (!getPersonnel(e).includes(instructorName)) return false;
+            const existingBookingWindow = getEventBookingWindowForAlgo(e, syllabusDetails);
+            return eventStart < existingBookingWindow.end && eventEnd > existingBookingWindow.start;
+        });
+    };
+    
+    // Helper: Find best available instructor
+    const findBestInstructorForStby = (
+        trainee: Trainee,
+        syllabusItem: SyllabusItemDetail,
+        startTime: number,
+        duration: number,
+        type: 'flight' | 'ftd',
+        events: Omit<ScheduleEvent, 'date'>[]
+    ): string | null => {
+        // Get qualified instructors
+        let candidates: Instructor[] = [];
+        
+        if (type === 'ftd') {
+            const simIps = instructors.filter(i => i.role === 'SIM IP');
+            const qfis = instructors.filter(i => i.role === 'QFI');
+            candidates = [...simIps, ...qfis];
+        } else {
+            candidates = instructors.filter(i => i.role === 'QFI');
+        }
+        
+        // Filter to only available instructors
+        const available = candidates.filter(ip => 
+            isInstructorAvailableForEvent(ip.name, startTime, duration, syllabusItem, events)
+        );
+        
+        if (available.length === 0) return null;
+        
+        // Count events for each instructor
+        const instructorEventCounts = available.map(ip => ({
+            instructor: ip,
+            count: events.filter(e => e.instructor === ip.name).length
+        }));
+        
+        // Find minimum count
+        const minCount = Math.min(...instructorEventCounts.map(ic => ic.count));
+        
+        // Get all instructors with minimum count
+        const withMinCount = instructorEventCounts.filter(ic => ic.count === minCount);
+        
+        // Random selection among tied instructors
+        const selected = withMinCount[Math.floor(Math.random() * withMinCount.length)];
+        return selected.instructor.name;
+    };
+    
+    // Helper: Find available STBY line for event
+    const findAvailableStbyLine = (
+        startTime: number,
+        duration: number,
+        stbyEvents: Omit<ScheduleEvent, 'date'>[],
+        prefix: string
+    ): number => {
+        const eventEnd = startTime + duration;
+        
+        // Group events by STBY line
+        const lineEvents = new Map<number, Array<{ start: number; end: number }>>();
+        
+        stbyEvents.forEach(e => {
+            if (!e.resourceId.startsWith(prefix)) return;
+            const match = e.resourceId.match(/(\d+)$/);
+            if (!match) return;
+            const lineNum = parseInt(match[1]);
+            
+            if (!lineEvents.has(lineNum)) {
+                lineEvents.set(lineNum, []);
+            }
+            lineEvents.get(lineNum)!.push({
+                start: e.startTime,
+                end: e.startTime + e.duration
+            });
+        });
+        
+        // Check existing lines for availability
+        for (let lineNum = 1; lineNum <= Math.max(4, lineEvents.size); lineNum++) {
+            const events = lineEvents.get(lineNum) || [];
+            const hasConflict = events.some(e => 
+                startTime < e.end && eventEnd > e.start
+            );
+            if (!hasConflict) return lineNum;
+        }
+        
+        // Need new line
+        return Math.max(4, lineEvents.size) + 1;
+    };
+    
+    // Schedule STBY events for unscheduled Day Next Events (Flight)
+    const unscheduledFlightNextEvents = nextEventLists.flight.filter(trainee => {
+        const { next } = traineeNextEventMap.get(trainee.fullName)!;
+        if (!next) return false;
+        // Check if this trainee's next event was scheduled
+        return !generatedEvents.some(e => 
+            e.student === trainee.fullName && 
+            e.flightNumber === next.id &&
+            !e.resourceId.startsWith('STBY')
+        );
+    });
+    
+    unscheduledFlightNextEvents.forEach(trainee => {
+        const { next } = traineeNextEventMap.get(trainee.fullName)!;
+        if (!next) return;
+        
+        const timeIncrement = 5 / 60; // 5 minutes
+        
+        // Search for valid start time
+        for (let time = flyingStartTime; time <= flyingEndTime - next.duration; time += timeIncrement) {
+            // Check if start time already exists
+            if (hasExistingStartTime(time, generatedEvents)) continue;
+            
+            // Check if event fits within flying window
+            const eventEnd = time + next.duration + (next.postFlightTime || 0);
+            if (eventEnd > flyingEndTime) continue;
+            
+            // Check 7 starts per hour limit
+            if (countStartsInPreviousHour(time, generatedEvents) >= 7) continue;
+            
+            // Find available instructor
+            const instructor = findBestInstructorForStby(trainee, next, time, next.duration, 'flight', generatedEvents);
+            
+            // Find available STBY line
+            const stbyLine = findAvailableStbyLine(time, next.duration, generatedEvents, 'STBY');
+            
+            // Create STBY event
+            generatedEvents.push({
+                id: uuidv4(),
+                type: 'flight',
+                instructor: instructor || 'TBA',
+                student: trainee.fullName,
+                flightNumber: next.id,
+                duration: next.duration,
+                startTime: time,
+                resourceId: `STBY ${stbyLine}`,
+                color: 'bg-yellow-500/50',
+                flightType: 'Dual',
+                locationType: 'Local',
+                origin: school,
+                destination: school,
+                preStart: next.preFlightTime,
+                postEnd: next.postFlightTime
+            });
+            
+            break; // Event placed, move to next trainee
+        }
+    });
+    
+    // Schedule STBY events for unscheduled Day Next Events (FTD)
+    const unscheduledFtdNextEvents = nextEventLists.ftd.filter(trainee => {
+        const { next } = traineeNextEventMap.get(trainee.fullName)!;
+        if (!next) return false;
+        // Check if this trainee's FTD next event was scheduled on an actual FTD resource
+        const wasScheduled = generatedEvents.some(e => 
+            e.student === trainee.fullName && 
+            e.flightNumber === next.id &&
+            e.type === 'ftd' &&
+            !e.resourceId.startsWith('STBY')
+        );
+        return !wasScheduled;
+    });
+    
+    console.log('FTD Next Events total:', nextEventLists.ftd.length);
+    console.log('Unscheduled FTD Next Events:', unscheduledFtdNextEvents.length);
+    console.log('Unscheduled FTD trainees:', unscheduledFtdNextEvents.map(t => t.fullName));
+    
+    unscheduledFtdNextEvents.forEach(trainee => {
+        const { next } = traineeNextEventMap.get(trainee.fullName)!;
+        if (!next) return;
+        
+        const timeIncrement = 5 / 60;
+        
+        for (let time = flyingStartTime; time <= flyingEndTime - next.duration; time += timeIncrement) {
+            if (hasExistingStartTime(time, generatedEvents)) continue;
+            
+            const eventEnd = time + next.duration + (next.postFlightTime || 0);
+            if (eventEnd > flyingEndTime) continue;
+            
+            if (countStartsInPreviousHour(time, generatedEvents) >= 7) continue;
+            
+            const instructor = findBestInstructorForStby(trainee, next, time, next.duration, 'ftd', generatedEvents);
+            const stbyLine = findAvailableStbyLine(time, next.duration, generatedEvents, 'STBY');
+            
+            generatedEvents.push({
+                id: uuidv4(),
+                type: 'ftd',
+                instructor: instructor || 'TBA',
+                student: trainee.fullName,
+                flightNumber: next.id,
+                duration: next.duration,
+                startTime: time,
+                resourceId: `STBY ${stbyLine}`,
+                color: 'bg-yellow-500/50',
+                flightType: 'Dual',
+                locationType: 'Local',
+                origin: school,
+                destination: school,
+                preStart: next.preFlightTime,
+                postEnd: next.postFlightTime
+            });
+            
+            break;
+        }
+    });
+    
     setProgress({ message: 'Shuffling events for distribution...', percentage: 95 });
     
     // Helper: Shuffle array randomly (Fisher-Yates algorithm)
@@ -2453,8 +2590,8 @@ const App: React.FC = () => {
         
         const resources = [
             ...pc21Resources,
-            ...Array.from({ length: stbyLineCount }, (_, i) => `STBY ${i + 1}`),
             'Duty Sup',
+            ...Array.from({ length: stbyLineCount }, (_, i) => `STBY ${i + 1}`),
             ...Array.from({ length: availableFtdCount }, (_, i) => `FTD ${i + 1}`),
             ...Array.from({ length: availableCptCount }, (_, i) => `CPT ${i + 1}`),
             ...Array.from({ length: 6 }, (_, i) => `Ground ${i + 1}`),
