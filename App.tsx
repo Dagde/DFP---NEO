@@ -2944,6 +2944,15 @@ const App: React.FC = () => {
         // This is used for LOGIC (like conflict checks), not rendering.
         return publishedSchedules[date] || [];
     }, [date, publishedSchedules]);
+    
+    // Filter out STBY events for Staff and Trainee schedule views
+    const eventsForStaffTraineeSchedule = useMemo(() => {
+        return eventsForDate.filter(e => !e.resourceId.startsWith('STBY'));
+    }, [eventsForDate]);
+    
+    const nextDayEventsForStaffTraineeSchedule = useMemo(() => {
+        return nextDayBuildEvents.filter(e => !e.resourceId.startsWith('STBY'));
+    }, [nextDayBuildEvents]);
 
     const eventSegmentsForDate = useMemo(() => {
         const segments: EventSegment[] = [];
@@ -5559,7 +5568,7 @@ updates.forEach(update => {
                 return <InstructorScheduleView 
                             date={date}
                             onDateChange={handleDateChange}
-                            events={eventsForDate}
+                            events={eventsForStaffTraineeSchedule}
                             instructors={instructorsData.map(i => ({ name: i.name, rank: i.rank }))}
                             traineesData={traineesData}
                             onSelectEvent={handleOpenModal}
@@ -5578,7 +5587,7 @@ updates.forEach(update => {
                 return <TraineeScheduleView
                             date={date}
                             onDateChange={handleDateChange}
-                            events={eventsForDate}
+                            events={eventsForStaffTraineeSchedule}
                             trainees={traineesData.map(t => t.fullName)}
                             traineesData={traineesData}
                             onSelectEvent={handleOpenModal}
@@ -5595,7 +5604,7 @@ updates.forEach(update => {
                        />;
             case 'NextDayInstructorSchedule':
                 return <NextDayInstructorScheduleView
-                    events={nextDayBuildEvents.map(e => ({...e, date: buildDfpDate}))}
+                    events={nextDayEventsForStaffTraineeSchedule.map(e => ({...e, date: buildDfpDate}))}
                     instructors={instructorsData.map(i => ({ name: i.name, rank: i.rank }))}
                     traineesData={traineesData}
                     onSelectEvent={(e) => handleOpenModal({...e, date: buildDfpDate}, {})}
@@ -5613,7 +5622,7 @@ updates.forEach(update => {
                 />;
             case 'NextDayTraineeSchedule':
                 return <NextDayTraineeScheduleView
-                    events={nextDayBuildEvents.map(e => ({...e, date: buildDfpDate}))}
+                    events={nextDayEventsForStaffTraineeSchedule.map(e => ({...e, date: buildDfpDate}))}
                     trainees={traineesData.map(t => t.fullName)}
                     traineesData={traineesData}
                     onSelectEvent={(e) => handleOpenModal({...e, date: buildDfpDate}, {})}
