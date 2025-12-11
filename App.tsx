@@ -1586,6 +1586,11 @@ function generateDfpInternal(
         const resourcePrefix = type === 'flight' ? 'PC-21 ' : type === 'ftd' ? 'FTD ' : type === 'cpt' ? 'CPT ' : 'Ground ';
         const resourceCount = type === 'flight' ? availableAircraftCount : type === 'ftd' ? ftdCount : type === 'cpt' ? cptCount : 6;
         
+        // Debug logging for FTD resource allocation
+        if (type === 'ftd') {
+            console.log(`[FTD SCHEDULING] Trainee: ${trainee.fullName}, Event: ${syllabusItem.code}, Available FTD count: ${ftdCount}, Resource count: ${resourceCount}`);
+        }
+        
         for (let i = 1; i <= resourceCount; i++) {
             const id = `${resourcePrefix}${i}`;
             const resourceIsOccupied = generatedEvents.some(e => {

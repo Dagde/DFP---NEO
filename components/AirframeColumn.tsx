@@ -73,12 +73,12 @@ const AirframeColumn: React.FC<AirframeColumnProps> = ({ resources, onReorder, r
     displayResources.push('STBY');
   }
   
-  // 4. Always add 5 FTD lines (FIXED - 5 lines)
+  // 4. Always add 5 FTD lines (FIXED - 5 lines, regardless of availability or events)
   for (let i = 0; i < 5; i++) {
     displayResources.push('FTD');
   }
   
-  // 5. Always add 4 CPT lines (FIXED - 4 lines)
+  // 5. Always add 4 CPT lines (FIXED - 4 lines, regardless of availability or events)
   for (let i = 0; i < 4; i++) {
     displayResources.push('CPT');
   }
