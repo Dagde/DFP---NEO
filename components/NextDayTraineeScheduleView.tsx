@@ -69,6 +69,7 @@ export const NextDayTraineeScheduleView: React.FC<NextDayTraineeScheduleViewProp
   } | null>(null);
 
   const [realtimeConflict, setRealtimeConflict] = useState<{ conflictingEventId: string; conflictedPersonName: string; } | null>(null);
+  const [hoveredEventId, setHoveredEventId] = useState<string | null>(null);
   const scheduleGridRef = useRef<HTMLDivElement>(null);
   const isInitialLoad = useRef(true);
   const prevZoomLevelRef = useRef(zoomLevel);
@@ -400,50 +401,59 @@ export const NextDayTraineeScheduleView: React.FC<NextDayTraineeScheduleViewProp
   
         const currentSyllabus = syllabusDetails.find(d => d.id === currentEvent.flightNumber);
         if (!currentSyllabus) continue;
-  
-        const renderBar = (duration: number, left: number, isConflicting: boolean, key: string) => {
+        
+        // Check if this event has any conflicts involving pre/post/turnaround times
+        const hasPreConflict = prevEvent && (() => {
+          const prevSyllabus = syllabusDetails.find(d => d.id === prevEvent.flightNumber);
+          if (!prevSyllabus) return false;
+          const prevPostEnd = prevEvent.startTime + prevEvent.duration + prevSyllabus.postFlightTime;
+          const currentPreStart = currentEvent.startTime - currentSyllabus.preFlightTime;
+          return prevPostEnd > currentPreStart;
+        })();
+        
+        const hasPostConflict = nextEvent && (() => {
+          const nextSyllabus = syllabusDetails.find(d => d.id === nextEvent.flightNumber);
+          if (!nextSyllabus) return false;
+          const currentPostEnd = currentEvent.startTime + currentEvent.duration + currentSyllabus.postFlightTime;
+          const nextPreStart = nextEvent.startTime - nextSyllabus.preFlightTime;
+          return currentPostEnd > nextPreStart;
+        })();
+        
+        const isHovered = hoveredEventId === currentEvent.id;
+        const hasAnyConflict = hasPreConflict || hasPostConflict;
+        
+        // Only render bars if: (hovered OR has conflict)
+        if (!isHovered && !hasAnyConflict) continue;
+        
+        const renderBar = (duration: number, startTime: number, isConflicting: boolean, key: string) => {
           const barWidth = duration * PIXELS_PER_HOUR * zoomLevel;
           const barHeight = ROW_HEIGHT * 0.25;
           const barTop = rowIndex * ROW_HEIGHT + (ROW_HEIGHT - barHeight) / 2;
+          const barLeft = (startTime - START_HOUR) * PIXELS_PER_HOUR * zoomLevel;
   
           const baseClassName = "absolute pointer-events-none z-20 rounded-full border shadow-lg backdrop-blur-sm transition-colors duration-200";
-          const className = `${baseClassName} ${isConflicting ? 'bg-red-500/50 border-red-400/30' : 'bg-gray-400/50 border-white/30'}`;
+          const className = `${baseClassName} ${isConflicting ? 'bg-red-500/50 border-red-400/30' : 'bg-white/50 border-white/30'}`;
   
-          const style: React.CSSProperties = { left: `${left}px`, top: `${barTop}px`, width: `${barWidth}px`, height: `${barHeight}px` };
+          const style: React.CSSProperties = { 
+            left: `${barLeft}px`, 
+            top: `${barTop}px`, 
+            width: `${barWidth}px`, 
+            height: `${barHeight}px` 
+          };
           
           bars.push(<div key={key} style={style} className={className} />);
         };
-  
-        let preBarIsConflicting = false;
-        if (prevEvent) {
-          const prevSyllabus = syllabusDetails.find(d => d.id === prevEvent.flightNumber);
-          if (prevSyllabus) {
-            const prevPostBarEndTime = prevEvent.startTime + prevEvent.duration + (prevSyllabus.postFlightTime || 0);
-            const currentPreBarStartTime = currentEvent.startTime - (currentSyllabus.preFlightTime || 0);
-            if (prevPostBarEndTime > currentPreBarStartTime) {
-              preBarIsConflicting = true;
-            }
-          }
-        }
+        
+        // Render pre-flight bar
         if (currentSyllabus.preFlightTime > 0) {
-          const preBarLeft = (currentEvent.startTime - currentSyllabus.preFlightTime - START_HOUR) * PIXELS_PER_HOUR * zoomLevel;
-          renderBar(currentSyllabus.preFlightTime, preBarLeft, preBarIsConflicting, `${currentEvent.id}-pre`);
+          const preStartTime = currentEvent.startTime - currentSyllabus.preFlightTime;
+          renderBar(currentSyllabus.preFlightTime, preStartTime, hasPreConflict || false, `${currentEvent.id}-pre`);
         }
-  
-        let postBarIsConflicting = false;
-        if (nextEvent) {
-          const nextSyllabus = syllabusDetails.find(d => d.id === nextEvent.flightNumber);
-          if (nextSyllabus) {
-            const postBarEndTime = currentEvent.startTime + currentEvent.duration + (currentSyllabus.postFlightTime || 0);
-            const nextPreBarStartTime = nextEvent.startTime - (nextSyllabus.preFlightTime || 0);
-            if (postBarEndTime > nextPreBarStartTime) {
-              postBarIsConflicting = true;
-            }
-          }
-        }
+        
+        // Render post-flight bar
         if (currentSyllabus.postFlightTime > 0) {
-          const postBarLeft = (currentEvent.startTime + currentEvent.duration - START_HOUR) * PIXELS_PER_HOUR * zoomLevel;
-          renderBar(currentSyllabus.postFlightTime, postBarLeft, postBarIsConflicting, `${currentEvent.id}-post`);
+          const postStartTime = currentEvent.startTime + currentEvent.duration;
+          renderBar(currentSyllabus.postFlightTime, postStartTime, hasPostConflict || false, `${currentEvent.id}-post`);
         }
       }
     });
@@ -536,8 +546,8 @@ export const NextDayTraineeScheduleView: React.FC<NextDayTraineeScheduleViewProp
                     traineesData={traineesData}
                     onSelectEvent={() => { if (!didDragRef.current) onSelectEvent(event); }}
                     onMouseDown={(e) => handleMouseDown(e, event)}
-                    onMouseEnter={() => {}}
-                    onMouseLeave={() => {}}
+                    onMouseEnter={() => setHoveredEventId(event.id)}
+                    onMouseLeave={() => setHoveredEventId(null)}
                     pixelsPerHour={PIXELS_PER_HOUR * zoomLevel}
                     rowHeight={ROW_HEIGHT}
                     startHour={START_HOUR}
