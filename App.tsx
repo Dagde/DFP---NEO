@@ -2163,27 +2163,45 @@ function generateDfpInternal(
     
     // PASS 1: Schedule STBY events ONLY where instructor is available
     console.log('PASS 1: Scheduling STBY with instructors available...');
+    console.log(`Flying window: ${flyingStartTime.toFixed(2)} to ${flyingEndTime.toFixed(2)}`);
+    
     for (const trainee of traineesNeedingStby) {
         const { next } = traineeNextEventMap.get(trainee.fullName)!;
         if (!next) continue;
         
+        let placed = false;
         // Try to find a time slot where an instructor IS available
         for (let time = flyingStartTime; time < flyingEndTime; time += timeIncrement) {
+            // Debug logging for 10:00-10:20 window
+            const isDebugWindow = time >= 10.0 && time <= 10.33;
+            
             // Check if flight already starts at this time
-            if (hasFlightStartTime(time, generatedEvents)) continue;
+            if (hasFlightStartTime(time, generatedEvents)) {
+                if (isDebugWindow) console.log(`  ${time.toFixed(2)}: Flight already exists`);
+                continue;
+            }
             
             // Check if flight block time fits within flying window
             const flightEndTime = time + next.duration;
-            if (flightEndTime > flyingEndTime) continue;
+            if (flightEndTime > flyingEndTime) {
+                if (isDebugWindow) console.log(`  ${time.toFixed(2)}: Would exceed flying window`);
+                continue;
+            }
             
             // Check "8 flights per hour" rule
-            if (wouldViolate8PerHourRule(time, generatedEvents)) continue;
+            if (wouldViolate8PerHourRule(time, generatedEvents)) {
+                if (isDebugWindow) console.log(`  ${time.toFixed(2)}: Would violate 8-per-hour rule`);
+                continue;
+            }
             
             // Try to find available instructor
             const instructor = findBestInstructorForStby(trainee, next, time, next.duration, 'flight', generatedEvents);
             
             // ONLY schedule if instructor is available (skip TBA for now)
-            if (!instructor) continue;
+            if (!instructor) {
+                if (isDebugWindow) console.log(`  ${time.toFixed(2)}: No instructor available`);
+                continue;
+            }
             
             // Find available STBY line
             const stbyLine = findAvailableStbyLine(time, next.duration, generatedEvents, 'STBY');
@@ -2209,7 +2227,12 @@ function generateDfpInternal(
             
             console.log(`PASS 1: STBY at ${time.toFixed(2)} for ${trainee.fullName}, instructor: ${instructor}`);
             scheduledTrainees.add(trainee.fullName);
+            placed = true;
             break; // Move to next trainee
+        }
+        
+        if (!placed) {
+            console.log(`PASS 1: Could not place ${trainee.fullName} anywhere in flying window`);
         }
     }
     
