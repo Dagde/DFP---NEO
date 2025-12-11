@@ -1349,18 +1349,16 @@ function generateDfpInternal(
                 for (let time = searchStartTime; time <= endTimeBoundary - syllabusItem.duration; time += timeIncrement) {
                     const result = scheduleEvent(trainee, syllabusItem, time, type, isNightPass, isPlusOne);
                     if (result === 'stby') {
-                        // Found a valid time but no aircraft - get the instructor that would have been assigned
-                        const instructor = findAvailableInstructor(trainee, syllabusItem, isPlusOne);
-                        if (instructor) {
-                            stbyAttempts.push({
-                                trainee,
-                                syllabusItem,
-                                time,
-                                instructor: instructor.name,
-                                isPlusOne
-                            });
-                            break; // Found valid STBY slot for this trainee
-                        }
+                        // Found a valid time but no aircraft
+                        // Note: Instructor will be 'TBD' for STBY events as they haven't been assigned yet
+                        stbyAttempts.push({
+                            trainee,
+                            syllabusItem,
+                            time,
+                            instructor: 'TBD',
+                            isPlusOne
+                        });
+                        break; // Found valid STBY slot for this trainee
                     }
                 }
             });
