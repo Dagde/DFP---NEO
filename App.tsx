@@ -2215,15 +2215,18 @@ function generateDfpInternal(
     
     console.log(`PASS 1 complete: ${scheduledTrainees.size} STBY flights with instructors`);
     
-    // PASS 2: Schedule remaining trainees with TBA (no instructor available)
-    console.log('PASS 2: Scheduling remaining STBY with TBA...');
+    // PASS 2: Go back to beginning and schedule remaining trainees with TBA
+    // This ensures we fill ALL available slots, starting from the beginning of the day
+    console.log('PASS 2: Going back to beginning to schedule remaining STBY with TBA...');
     const remainingTrainees = traineesNeedingStby.filter(t => !scheduledTrainees.has(t.fullName));
+    console.log(`Remaining trainees needing STBY: ${remainingTrainees.length}`);
     
+    // Restart from beginning of flying window for Pass 2
     for (const trainee of remainingTrainees) {
         const { next } = traineeNextEventMap.get(trainee.fullName)!;
         if (!next) continue;
         
-        // Find any available time slot (instructor not required)
+        // Scan from START of flying window (not where Pass 1 left off)
         for (let time = flyingStartTime; time < flyingEndTime; time += timeIncrement) {
             if (hasFlightStartTime(time, generatedEvents)) continue;
             
@@ -2234,7 +2237,7 @@ function generateDfpInternal(
             
             const stbyLine = findAvailableStbyLine(time, next.duration, generatedEvents, 'STBY');
             
-            // Create STBY flight event with TBA
+            // Create STBY flight event with TBA (no instructor available)
             generatedEvents.push({
                 id: uuidv4(),
                 type: 'flight',
@@ -2255,11 +2258,11 @@ function generateDfpInternal(
             
             console.log(`PASS 2: STBY at ${time.toFixed(2)} for ${trainee.fullName}, instructor: TBA`);
             scheduledTrainees.add(trainee.fullName);
-            break;
+            break; // Move to next trainee
         }
     }
     
-    console.log(`PASS 2 complete: Total STBY flights: ${scheduledTrainees.size}`);
+    console.log(`PASS 2 complete: Total STBY flights: ${scheduledTrainees.size} (Pass 1: ${scheduledTrainees.size - remainingTrainees.length}, Pass 2: ${remainingTrainees.length})`);
     
     setProgress({ message: 'Shuffling events for distribution...', percentage: 95 });
     
@@ -2344,10 +2347,46 @@ function generateDfpInternal(
         return result;
     };
     
-    // DON'T shuffle for Next Day Build - events must stay in resource order to match left column
-    // Shuffling was causing resource column mismatch (STBY/Ground/FTD labels not matching events)
+    // Sort events by resource order to match left column headers
+    // This ensures resource column labels align with event rows
+    setProgress({ message: 'Sorting events by resource order...', percentage: 98 });
+    
+    // Define resource order matching buildResources
+    const resourceOrder = [
+        // PC-21 aircraft
+        ...Array.from({ length: 24 }, (_, i) => `PC-21 ${i + 1}`),
+        ...Array.from({ length: 10 }, (_, i) => `Deployed ${i + 1}`),
+        // Duty Sup
+        'Duty Sup',
+        // STBY lines
+        ...Array.from({ length: 20 }, (_, i) => `STBY ${i + 1}`),
+        // FTD
+        ...Array.from({ length: 10 }, (_, i) => `FTD ${i + 1}`),
+        // CPT
+        ...Array.from({ length: 10 }, (_, i) => `CPT ${i + 1}`),
+        // Ground
+        ...Array.from({ length: 10 }, (_, i) => `Ground ${i + 1}`)
+    ];
+    
+    // Create a map of resourceId to order index
+    const resourceOrderMap = new Map<string, number>();
+    resourceOrder.forEach((resource, index) => {
+        resourceOrderMap.set(resource, index);
+    });
+    
+    // Sort events by resource order, then by start time
+    const sortedEvents = [...generatedEvents].sort((a, b) => {
+        const orderA = resourceOrderMap.get(a.resourceId) ?? 9999;
+        const orderB = resourceOrderMap.get(b.resourceId) ?? 9999;
+        
+        if (orderA !== orderB) {
+            return orderA - orderB; // Sort by resource order first
+        }
+        return a.startTime - b.startTime; // Then by start time within same resource
+    });
+    
     setProgress({ message: 'Build complete!', percentage: 100 });
-    return generatedEvents;
+    return sortedEvents;
 }
 
 
