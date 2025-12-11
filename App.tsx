@@ -2157,60 +2157,109 @@ function generateDfpInternal(
     
     console.log('Trainees needing STBY flights:', traineesNeedingStby.length);
     
-    // Scan through flying window in 5-minute steps to place STBY flights
+    // TWO-PASS APPROACH: Maximize instructor-allocated STBY events
     const timeIncrement = 5 / 60; // 5 minutes
-    let traineeIndex = 0;
+    const scheduledTrainees = new Set<string>();
     
-    for (let time = flyingStartTime; time < flyingEndTime && traineeIndex < traineesNeedingStby.length; time += timeIncrement) {
-        const trainee = traineesNeedingStby[traineeIndex];
+    // PASS 1: Schedule STBY events ONLY where instructor is available
+    console.log('PASS 1: Scheduling STBY with instructors available...');
+    for (const trainee of traineesNeedingStby) {
         const { next } = traineeNextEventMap.get(trainee.fullName)!;
-        if (!next) {
-            traineeIndex++;
-            continue;
+        if (!next) continue;
+        
+        // Try to find a time slot where an instructor IS available
+        for (let time = flyingStartTime; time < flyingEndTime; time += timeIncrement) {
+            // Check if flight already starts at this time
+            if (hasFlightStartTime(time, generatedEvents)) continue;
+            
+            // Check if flight block time fits within flying window
+            const flightEndTime = time + next.duration;
+            if (flightEndTime > flyingEndTime) continue;
+            
+            // Check "8 flights per hour" rule
+            if (wouldViolate8PerHourRule(time, generatedEvents)) continue;
+            
+            // Try to find available instructor
+            const instructor = findBestInstructorForStby(trainee, next, time, next.duration, 'flight', generatedEvents);
+            
+            // ONLY schedule if instructor is available (skip TBA for now)
+            if (!instructor) continue;
+            
+            // Find available STBY line
+            const stbyLine = findAvailableStbyLine(time, next.duration, generatedEvents, 'STBY');
+            
+            // Create STBY flight event with instructor
+            generatedEvents.push({
+                id: uuidv4(),
+                type: 'flight',
+                instructor: instructor,
+                student: trainee.fullName,
+                flightNumber: next.id,
+                duration: next.duration,
+                startTime: time,
+                resourceId: `STBY ${stbyLine}`,
+                color: 'bg-yellow-500/50',
+                flightType: 'Dual',
+                locationType: 'Local',
+                origin: school,
+                destination: school,
+                preStart: next.preFlightTime,
+                postEnd: next.postFlightTime
+            });
+            
+            console.log(`PASS 1: STBY at ${time.toFixed(2)} for ${trainee.fullName}, instructor: ${instructor}`);
+            scheduledTrainees.add(trainee.fullName);
+            break; // Move to next trainee
         }
-        
-        // Check if flight already starts at this time
-        if (hasFlightStartTime(time, generatedEvents)) continue;
-        
-        // Check if flight block time fits within flying window (not including post-flight)
-        const flightEndTime = time + next.duration;
-        if (flightEndTime > flyingEndTime) continue;
-        
-        // Check "8 flights per hour" rule (rolling 60-minute windows)
-        if (wouldViolate8PerHourRule(time, generatedEvents)) continue;
-        
-        // Find available instructor
-        const instructor = findBestInstructorForStby(trainee, next, time, next.duration, 'flight', generatedEvents);
-        
-        // Find available STBY line
-        const stbyLine = findAvailableStbyLine(time, next.duration, generatedEvents, 'STBY');
-        
-        // Create STBY flight event
-        generatedEvents.push({
-            id: uuidv4(),
-            type: 'flight',
-            instructor: instructor || 'TBA',
-            student: trainee.fullName,
-            flightNumber: next.id,
-            duration: next.duration,
-            startTime: time,
-            resourceId: `STBY ${stbyLine}`,
-            color: 'bg-yellow-500/50',
-            flightType: 'Dual',
-            locationType: 'Local',
-            origin: school,
-            destination: school,
-            preStart: next.preFlightTime,
-            postEnd: next.postFlightTime
-        });
-        
-        console.log(`STBY flight placed at ${time.toFixed(2)} for ${trainee.fullName}, instructor: ${instructor || 'TBA'}`);
-        
-        // Move to next trainee
-        traineeIndex++;
     }
     
-    console.log(`Total STBY flights placed: ${traineeIndex}`);
+    console.log(`PASS 1 complete: ${scheduledTrainees.size} STBY flights with instructors`);
+    
+    // PASS 2: Schedule remaining trainees with TBA (no instructor available)
+    console.log('PASS 2: Scheduling remaining STBY with TBA...');
+    const remainingTrainees = traineesNeedingStby.filter(t => !scheduledTrainees.has(t.fullName));
+    
+    for (const trainee of remainingTrainees) {
+        const { next } = traineeNextEventMap.get(trainee.fullName)!;
+        if (!next) continue;
+        
+        // Find any available time slot (instructor not required)
+        for (let time = flyingStartTime; time < flyingEndTime; time += timeIncrement) {
+            if (hasFlightStartTime(time, generatedEvents)) continue;
+            
+            const flightEndTime = time + next.duration;
+            if (flightEndTime > flyingEndTime) continue;
+            
+            if (wouldViolate8PerHourRule(time, generatedEvents)) continue;
+            
+            const stbyLine = findAvailableStbyLine(time, next.duration, generatedEvents, 'STBY');
+            
+            // Create STBY flight event with TBA
+            generatedEvents.push({
+                id: uuidv4(),
+                type: 'flight',
+                instructor: 'TBA',
+                student: trainee.fullName,
+                flightNumber: next.id,
+                duration: next.duration,
+                startTime: time,
+                resourceId: `STBY ${stbyLine}`,
+                color: 'bg-yellow-500/50',
+                flightType: 'Dual',
+                locationType: 'Local',
+                origin: school,
+                destination: school,
+                preStart: next.preFlightTime,
+                postEnd: next.postFlightTime
+            });
+            
+            console.log(`PASS 2: STBY at ${time.toFixed(2)} for ${trainee.fullName}, instructor: TBA`);
+            scheduledTrainees.add(trainee.fullName);
+            break;
+        }
+    }
+    
+    console.log(`PASS 2 complete: Total STBY flights: ${scheduledTrainees.size}`);
     
     setProgress({ message: 'Shuffling events for distribution...', percentage: 95 });
     
@@ -2295,11 +2344,10 @@ function generateDfpInternal(
         return result;
     };
     
-    // Apply shuffle to prevent clustering
-    const shuffledEvents = shuffleEventsByType(generatedEvents);
-    
+    // DON'T shuffle for Next Day Build - events must stay in resource order to match left column
+    // Shuffling was causing resource column mismatch (STBY/Ground/FTD labels not matching events)
     setProgress({ message: 'Build complete!', percentage: 100 });
-    return shuffledEvents;
+    return generatedEvents;
 }
 
 
