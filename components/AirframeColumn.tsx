@@ -59,13 +59,18 @@ const AirframeColumn: React.FC<AirframeColumnProps> = ({ resources, onReorder, r
   // 2. Always add Duty Sup (FIXED - 1 line)
   displayResources.push('Duty Sup');
   
-  // 3. Add STBY lines based on actual STBY events (VARIABLE)
+  // 3. Add STBY lines with minimum of 4 lines (VARIABLE with minimum 4)
+  let stbyLineCount = 4; // Always show minimum of 4 STBY lines
   if (events.length > 0) {
     const stbyEvents = events.filter(event => 
       event?.resourceId && (event.resourceId.startsWith('STBY') || event.resourceId.startsWith('BNF-STBY'))
     );
     const uniqueStbyLines = new Set(stbyEvents.map(e => e.resourceId));
-    uniqueStbyLines.forEach(() => displayResources.push('STBY'));
+    stbyLineCount = Math.max(uniqueStbyLines.size, 4); // Minimum 4 lines
+  }
+  
+  for (let i = 0; i < stbyLineCount; i++) {
+    displayResources.push('STBY');
   }
   
   // 4. Always add 5 FTD lines (FIXED - 5 lines)
