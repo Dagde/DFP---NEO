@@ -2728,8 +2728,8 @@ const App: React.FC = () => {
             ...pc21Resources,
             'Duty Sup',
             ...Array.from({ length: stbyLineCount }, (_, i) => `STBY ${i + 1}`),
-            ...Array.from({ length: availableFtdCount }, (_, i) => `FTD ${i + 1}`),
-            ...Array.from({ length: availableCptCount }, (_, i) => `CPT ${i + 1}`),
+            ...Array.from({ length: 5 }, (_, i) => `FTD ${i + 1}`), // Always 5 FTD lines for display
+            ...Array.from({ length: 4 }, (_, i) => `CPT ${i + 1}`), // Always 4 CPT lines for display
             ...Array.from({ length: 6 }, (_, i) => `Ground ${i + 1}`),
         ];
         
