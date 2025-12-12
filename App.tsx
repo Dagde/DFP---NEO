@@ -4344,7 +4344,7 @@ const App: React.FC = () => {
         // CRITICAL FIRST STEP: Analyze Active DFP for the build date and preserve existing events
         console.log(`Pre-Build Analysis: Checking Active DFP for ${buildDfpDate}...`);
         
-        const existingEventsForDate = publishedScheduleEvents.filter(event => event.date === buildDfpDate);
+        const existingEventsForDate = publishedSchedules[buildDfpDate] || [];
         
         if (existingEventsForDate.length > 0) {
             console.log(`Found ${existingEventsForDate.length} existing events in Active DFP for ${buildDfpDate}`);
