@@ -289,7 +289,7 @@ const ScheduleView: React.FC<ScheduleViewProps> = ({
                     initialPositions,
                     originalResourceIds,
                 });
-                   console.log('setDraggingState called with:', dragState);
+                   console.log('setDraggingState called with:', draggingState);
             } else {
                 console.log('No initial positions - drag state not set');
             }
