@@ -329,6 +329,14 @@ export const EventDetailModal: React.FC<EventDetailModalProps> = ({ event, onClo
         console.log('💾 handleSave called with crew length:', crew.length);
         console.log('💾 Formation info:', { formationType, flightNumber, hasFormationEvents: !!event.formationEvents });
         const eventsToSave: ScheduleEvent[] = crew.map((c, index) => {
+        
+        // Generate a single formation ID for all events in this formation
+        console.log('💾 DEBUG: flightNumber:', flightNumber);
+        console.log('💾 DEBUG: flightNumber === "SCT FORM":', flightNumber === 'SCT FORM');
+        const isFormation = flightNumber === 'SCT FORM';
+        const formationId = isFormation ? (event.formationId || `formation-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`) : undefined;
+        console.log('💾 DEBUG: isFormation:', isFormation);
+        console.log('💾 Generated formationId:', formationId);
             let eventColor = event.color;
             // ... (existing color logic)
             
@@ -367,8 +375,15 @@ export const EventDetailModal: React.FC<EventDetailModalProps> = ({ event, onClo
                 origin: locationType === 'Local' ? school : origin,
                 destination: locationType === 'Local' ? school : destination,
                 resourceId: eventResourceId, // Preserve existing resourceId for formation events
+                formationId: formationId,
                 formationType: (flightNumber === 'SCT FORM') ? formationType : undefined,
                 formationPosition: (flightNumber === 'SCT FORM') ? index + 1 : undefined,
+                formationAircraftCount: (flightNumber === 'SCT FORM') ? crew.length : undefined,
+                formationMetadata: (flightNumber === 'SCT FORM') ? {
+                    formationType,
+                    aircraftCount: crew.length,
+                    createdAt: new Date().toISOString()
+                } : undefined,
             };
         });
         
@@ -376,6 +391,7 @@ export const EventDetailModal: React.FC<EventDetailModalProps> = ({ event, onClo
         eventsToSave.forEach((e, i) => {
             console.log(`💾 Event ${i + 1}:`, {
                 id: e.id,
+                formationId: e.formationId,
                 formationType: e.formationType,
                 formationPosition: e.formationPosition,
                 instructor: e.instructor,

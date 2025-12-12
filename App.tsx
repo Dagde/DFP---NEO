@@ -4698,6 +4698,14 @@ const App: React.FC = () => {
         
         // Check if this is a formation event update
         const updatedEvent = currentScheduleForDate.find(e => e.id === updates[0].eventId);
+        console.log('🐍 Looking for event with ID:', updates[0].eventId);
+        console.log('🐍 Found event:', updatedEvent);
+        if (updatedEvent) {
+            console.log('🐍 Event keys:', Object.keys(updatedEvent));
+            console.log('🐍 Event formationId:', updatedEvent.formationId);
+            console.log('🐍 Full event object:', JSON.stringify(updatedEvent, null, 2));
+        }
+        
         if (updatedEvent?.formationId) {
             console.log('🐍 FORMATION EVENT UPDATE DETECTED - Formation ID:', updatedEvent.formationId);
             

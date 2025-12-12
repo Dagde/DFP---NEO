@@ -264,10 +264,16 @@ const ScheduleView: React.FC<ScheduleViewProps> = ({
             const originalResourceIds = new Map<string, string>();
 
             const processEvent = (ev: ScheduleEvent) => {
+                console.log('🐍 Processing event for drag:', ev.id, 'resourceId:', ev.resourceId);
+                console.log('🐍 Available resources:', resources);
                 const rowIndex = resources.indexOf(ev.resourceId);
+                console.log('🐍 Found row index:', rowIndex);
                 if (rowIndex !== -1) {
                     initialPositions.set(ev.id, { startTime: ev.startTime, rowIndex });
                     originalResourceIds.set(ev.id, ev.resourceId);
+                    console.log('🐍 Event added to initialPositions');
+                } else {
+                    console.log('🐍 Event NOT added - resourceId not found in resources');
                 }
             };
 
@@ -463,8 +469,8 @@ const ScheduleView: React.FC<ScheduleViewProps> = ({
             setRealtimeResourceConflictId(resourceConflictId);
             setDraggedCptConflict(tempCptConflict);
 
-            console.log('Calling onUpdateEvent with', updates.length, 'updates:', updates);
-               console.log('Calling onUpdateEvent with', updates.length, 'updates:', updates);
+            console.log('🐍 DRAG COMPLETE - Calling onUpdateEvent with', updates.length, 'updates:');
+               console.log('🐍 Updates:', updates);
                 onUpdateEvent(updates);
         }
     };
