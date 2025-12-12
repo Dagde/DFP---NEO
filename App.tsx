@@ -4341,6 +4341,47 @@ const App: React.FC = () => {
     };
     
     const startBuildProcess = () => {
+        // CRITICAL FIRST STEP: Analyze Active DFP for the build date and preserve existing events
+        console.log(`Pre-Build Analysis: Checking Active DFP for ${buildDfpDate}...`);
+        
+        const existingEventsForDate = publishedScheduleEvents.filter(event => event.date === buildDfpDate);
+        
+        if (existingEventsForDate.length > 0) {
+            console.log(`Found ${existingEventsForDate.length} existing events in Active DFP for ${buildDfpDate}`);
+            console.log('Auto-adding these events to Highest Priority Events to preserve them...');
+            
+            // Add existing events to Highest Priority Events if not already there
+            const newHighestPriorityEvents = [...highestPriorityEvents];
+            let addedCount = 0;
+            
+            existingEventsForDate.forEach(event => {
+                // Check if this event is already in highest priority
+                const alreadyExists = newHighestPriorityEvents.some(hpe => 
+                    hpe.id === event.id || 
+                    (hpe.instructor === event.instructor && 
+                     hpe.student === event.student && 
+                     hpe.flightNumber === event.flightNumber &&
+                     hpe.startTime === event.startTime)
+                );
+                
+                if (!alreadyExists) {
+                    newHighestPriorityEvents.push(event);
+                    addedCount++;
+                    console.log(`  ✓ Added: ${event.flightNumber} - ${event.student || 'N/A'} with ${event.instructor} at ${event.startTime.toFixed(2)}`);
+                }
+            });
+            
+            if (addedCount > 0) {
+                setHighestPriorityEvents(newHighestPriorityEvents);
+                console.log(`✓ Pre-Build Analysis Complete: ${addedCount} events locked as highest priority`);
+            } else {
+                console.log('✓ Pre-Build Analysis Complete: All existing events already in highest priority');
+            }
+        } else {
+            console.log('Pre-Build Analysis: No existing events found in Active DFP for this date');
+        }
+        
+        // Now proceed with normal build process
         const activeTrainees = traineesData.filter(t => !t.isPaused && !isPersonStaticallyUnavailable(t, flyingStartTime, ceaseNightFlying, buildDfpDate, 'flight'));
         let bnfTraineeCount = 0;
 
