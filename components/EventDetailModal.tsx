@@ -1,601 +1,217 @@
-import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { ScheduleEvent, SyllabusItemDetail, Trainee } from '../types';
-import CancelConfirmationFlyout from './CancelConfirmationFlyout';
+import React, { useState } from 'react';
+import { X } from 'lucide-react';
+import { ScheduleEvent } from '../types';
 
 interface EventDetailModalProps {
-  event: ScheduleEvent;
-  onClose: () => void;
-  onSave: (events: ScheduleEvent[]) => void;
-  onDeleteRequest: () => void;
-  isEditingDefault?: boolean;
-  instructors: string[];
-  trainees: string[];
-  syllabus: string[];
-  syllabusDetails: SyllabusItemDetail[];
-  highlightedField?: 'startTime' | 'instructor' | 'student' | null;
-  school: 'ESL' | 'PEA';
-  traineesData: Trainee[];
-  courseColors: { [key: string]: string };
-  onNavigateToHateSheet: (trainee: Trainee) => void;
-  onNavigateToSyllabus: (flightNumber: string) => void;
-  onOpenPt051: (trainee: Trainee) => void;
-  onOpenAuth: (event: ScheduleEvent) => void;
-  onOpenPostFlight: (event: ScheduleEvent) => void;
-  isConflict: boolean;
-  onNeoClick: (event: ScheduleEvent) => void;
-  oracleAvailableInstructors?: string[];
-  oracleAvailableTrainees?: string[];
-  oracleNextSyllabusEvent?: SyllabusItemDetail | null;
-  // New props for deployment functionality
-  publishedSchedules?: Record<string, ScheduleEvent[]>;
-  nextDayBuildEvents?: ScheduleEvent[];
-  activeView?: string;
-  isAddingTile?: boolean;
+    event: ScheduleEvent;
+    onSave: (events: ScheduleEvent[]) => void;
+    onClose: () => void;
+    isInstructor?: boolean;
+    currentUserName?: string;
+    isAddingTile?: boolean;
 }
 
-interface CrewMember {
-    flightType: 'Dual' | 'Solo';
-    instructor: string;
-    student: string;
-    pilot: string;
-    group: string;
-    groupTraineeIds: number[]; // Added to track selected IDs
-}
-
-const getEventTypeFromSyllabus = (syllabusId: string, syllabusDetails: SyllabusItemDetail[]): 'flight' | 'ftd' | 'ground' => {
-    const detail = syllabusDetails.find(d => d.id === syllabusId);
-    if (!detail) { // Fallback for items not in syllabus like 'SCT FORM' or if data is missing
-        if (syllabusId.includes('FTD')) return 'ftd';
-        if (syllabusId.includes('CPT') || syllabusId.includes('MB') || syllabusId.includes('TUT') || syllabusId.includes('QUIZ')) return 'ground';
-        return 'flight';
-    }
-    if (detail.type === 'FTD') return 'ftd';
-    if (detail.type === 'Ground School') return 'ground';
-    return 'flight';
-};
-
-// Helper function to format deployment title
-const formatDeploymentTitle = (deployment: ScheduleEvent): string => {
-    const formatTime = (time: number): string => {
-        const hours = Math.floor(time);
-        const minutes = Math.round((time - hours) * 60);
-        return `${hours.toString().padStart(2, '0')}${minutes.toString().padStart(2, '0')}`;
-    };
-    
-    // Get start date and format it
-    const startDate = deployment.date || '';
-    const endDate = deployment.deploymentEndDate || startDate;
-    
-    // Format dates as DDMMMYY (e.g., 12May25)
-    const formatDate = (dateStr: string): string => {
-        if (!dateStr) return '';
-        const date = new Date(dateStr);
-        const day = date.getDate().toString().padStart(2, '0');
-        const month = date.toLocaleDateString('en-US', { month: 'short' });
-        const year = date.getFullYear().toString().slice(-2);
-        return `${day}${month}${year}`;
-    };
-    
-    const startTime = formatTime(deployment.startTime || 0);
-    const endTime = formatTime((deployment.startTime || 0) + (deployment.duration || 0));
-    
-    return `${startTime}${formatDate(startDate)}–${endTime}${formatDate(endDate)}`;
-};
-
-
-export const EventDetailModal: React.FC<EventDetailModalProps> = ({ event, onClose, onSave, onDeleteRequest, isEditingDefault = false, instructors, trainees, syllabus, syllabusDetails, highlightedField, school, traineesData, courseColors, onNavigateToHateSheet, onNavigateToSyllabus, onOpenPt051, onOpenAuth, onOpenPostFlight, isConflict, onNeoClick, oracleAvailableInstructors, oracleAvailableTrainees, oracleNextSyllabusEvent, publishedSchedules = {}, nextDayBuildEvents = [], activeView = '', isAddingTile = false }) => {
-    const [isEditing, setIsEditing] = useState(isEditingDefault);
-    
-    // Debug: Log received syllabus
-    const [localHighlight, setLocalHighlight] = useState(highlightedField);
-    const [showCancelConfirm, setShowCancelConfirm] = useState(false);
-
-    const [flightNumber, setFlightNumber] = useState(event.flightNumber);
-    const [duration, setDuration] = useState(event.duration);
-    const [eventType, setEventType] = useState(event.type);
-    const [startTime, setStartTime] = useState(event.startTime);
+export const EventDetailModal: React.FC<EventDetailModalProps> = ({
+    event,
+    onSave,
+    onClose,
+    isInstructor = false,
+    currentUserName,
+    isAddingTile = false
+}) => {
+    const [flightNumber, setFlightNumber] = useState(event.flightNumber || '');
+    const [startTime, setStartTime] = useState(event.startTime || 480);
+    const [duration, setDuration] = useState(event.duration || 60);
     const [area, setArea] = useState(event.area || 'A');
-    const [aircraftCount, setAircraftCount] = useState(event.aircraftCount || 1);
-    const [crew, setCrew] = useState<CrewMember[]>([{
-        flightType: event.flightType,
-        instructor: event.instructor || '',
-        student: event.student || '',
-        pilot: event.pilot || '',
-        group: event.group || '',
-        groupTraineeIds: event.groupTraineeIds || [],
-    }]);
-
-    const [locationType, setLocationType] = useState(event.locationType || 'Local');
-    const [origin, setOrigin] = useState(event.origin || school);
-    const [destination, setDestination] = useState(event.destination || school);
-    const [formationType, setFormationType] = useState(event.formationType || '');
-    
-    // Deployment Selection State
-    const [selectedDeploymentId, setSelectedDeploymentId] = useState<string>('');
-    
-    // Group Selection State
-    const [activeGroupInput, setActiveGroupInput] = useState<number | null>(null);
-    const groupInputRef = useRef<HTMLDivElement>(null);
-    
-    // Oracle state
-    const [syllabusSelectionError, setSyllabusSelectionError] = useState(false);
-    const isOracleContext = !!(oracleAvailableInstructors || oracleAvailableTrainees);
-
-    const formationTypes = school === 'ESL' ? ['MERL', 'VANG'] : ['COBR', 'HAWK'];
-    const areas = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'S', 'T', 'U', 'V', 'W', 'X', 'Y', 'Z'];
-
-    const courses = useMemo(() => Object.keys(courseColors).sort(), [courseColors]);
-    
-    // Group trainees data by course for the flyout
-    const coursesStruct = useMemo(() => {
-        return courses.map(courseName => ({
-            name: courseName,
-            trainees: traineesData.filter(t => t.course === courseName).sort((a,b) => a.name.localeCompare(b.name))
-        }));
-    }, [courses, traineesData]);
-
-    const modalTitle = useMemo(() => {
-        if (eventType === 'flight') return 'Flight Details';
-        if (eventType === 'ftd') return 'FTD Session Details';
-        return 'Ground Event Details';
-    }, [eventType]);
-
-    useEffect(() => {
-        setFlightNumber(event.flightNumber);
-        setDuration(event.duration);
-        setEventType(event.type);
-        setStartTime(event.startTime);
-        setArea(event.area || 'A');
-        
-        // Handle formation events
-        if (event.formationEvents && event.formationEvents.length > 0) {
-            setAircraftCount(event.formationEvents.length);
-            const formationCrew = event.formationEvents.map(fe => ({
-                flightType: fe.flightType,
-                instructor: fe.instructor || '',
-                student: fe.student || '',
-                pilot: fe.pilot || '',
-                group: fe.group || '',
-                groupTraineeIds: fe.groupTraineeIds || []
-            }));
-            setCrew(formationCrew);
-        } else {
-            setAircraftCount(event.aircraftCount || 1);
-            setCrew([{ 
-                flightType: event.flightType, 
-                instructor: event.instructor || '', 
-                student: event.student || '', 
-                pilot: event.pilot || '',
-                group: event.group || '',
-                groupTraineeIds: event.groupTraineeIds || []
-            }]);
-        }
-        
-        setIsEditing(isEditingDefault);
-        setLocalHighlight(highlightedField);
-        setLocationType(event.locationType || 'Local');
-        setOrigin(event.origin || school);
-        setDestination(event.destination || school);
-        setFormationType(event.formationType || '');
-    }, [event, isEditingDefault, highlightedField, school]);
-    
-    // Helper function to get current deployments
-    const getCurrentDeployments = (): ScheduleEvent[] => {
-        const deployments: ScheduleEvent[] = [];
-        
-        // Get deployments from published schedules for Program Schedule view
-        if (['Program Schedule', 'DailyFlyingProgram', 'InstructorSchedule', 'TraineeSchedule'].includes(activeView)) {
-            Object.values(publishedSchedules).forEach(scheduleEvents => {
-                const todayDeployments = scheduleEvents.filter(e => e.type === 'deployment');
-                deployments.push(...todayDeployments);
-            });
-        } 
-        // Get deployments from next day build for Next Day Build view
-        else if (['NextDayBuild', 'Priorities', 'ProgramData', 'NextDayInstructorSchedule', 'NextDayTraineeSchedule'].includes(activeView)) {
-            const buildDeployments = nextDayBuildEvents.filter(e => e.type === 'deployment');
-            deployments.push(...buildDeployments);
-        }
-        
-        // Filter deployments to show only those that could accommodate this event type
-        const compatibleDeployments = deployments.filter(deployment => {
-            if (eventType === 'flight') {
-                return deployment.resourceId?.startsWith('PC-21') || deployment.resourceId?.startsWith('Deployed');
-            } else if (eventType === 'ftd') {
-                return deployment.resourceId?.startsWith('FTD');
-            } else if (eventType === 'cpt') {
-                return deployment.resourceId?.startsWith('CPT');
-            }
-            return false;
-        });
-        
-        return compatibleDeployments;
-    };
-    
-    useEffect(() => {
-        if (locationType === 'Local') {
-            setOrigin(school);
-            setDestination(school);
-        }
-    }, [locationType, school]);
-
-    useEffect(() => {
-        const isFormation = flightNumber === 'SCT FORM';
-        const newSize = isFormation ? aircraftCount : 1;
-        console.log('👥 Crew size check:', { isFormation, aircraftCount, newSize, currentCrewLength: crew.length });
-        if (crew.length !== newSize) {
-             const newCrew = Array.from({ length: newSize }, (_, i) => {
-                return crew[i] || { flightType: 'Dual' as 'Dual' | 'Solo', instructor: '', student: '', pilot: '', group: '', groupTraineeIds: [] };
-            });
-            console.log('👥 Setting new crew array with', newCrew.length, 'members');
-            setCrew(newCrew);
-        }
-    }, [aircraftCount, flightNumber, crew]);
-
-    useEffect(() => {
-      setEventType(getEventTypeFromSyllabus(flightNumber, syllabusDetails));
-    }, [flightNumber, syllabusDetails]);
-    
-    // Oracle Logic: Auto-populate syllabus and duration when trainee is selected
-    useEffect(() => {
-        const traineeName = crew[0]?.student;
-        if (isOracleContext && traineeName && oracleAvailableTrainees?.includes(traineeName)) {
-            if (oracleNextSyllabusEvent) {
-                setFlightNumber(oracleNextSyllabusEvent.id);
-                setDuration(oracleNextSyllabusEvent.duration);
-            }
-        }
-    }, [crew[0]?.student, isOracleContext, oracleAvailableTrainees, oracleNextSyllabusEvent]);
-
-    // Add debugging at render start
-    
-    // Add immediate visual confirmation that changes are loaded
-    if (typeof window !== 'undefined') {
-        const testDiv = document.createElement('div');
-        testDiv.id = 'formation-fix-loaded';
-        testDiv.style.cssText = 'position:fixed;top:10px;right:10px;background:red;color:white;padding:5px;z-index:99999;';
-        testDiv.textContent = 'FORMATION FIX LOADED v2';
-        document.body.appendChild(testDiv);
-        setTimeout(() => testDiv.remove(), 5000);
-    }
-
-    // Close group flyout when clicking outside
-    useEffect(() => {
-        const handleClickOutside = (e: MouseEvent) => {
-            if (groupInputRef.current && !groupInputRef.current.contains(e.target as Node)) {
-                setActiveGroupInput(null);
-            }
-        };
-        document.addEventListener("mousedown", handleClickOutside as any);
-        return () => document.removeEventListener("mousedown", handleClickOutside as any);
-    }, []);
-    
-    const personnel = useMemo(() => [...instructors, ...trainees].sort(), [instructors, trainees]);
-    
-    const handleCrewChange = (index: number, field: keyof CrewMember, value: any) => {
-        const newCrew = [...crew];
-        const memberToUpdate = { ...newCrew[index] };
-
-        if (field === 'flightType') {
-            const flightTypeValue = value as 'Dual' | 'Solo';
-            memberToUpdate.flightType = flightTypeValue;
-
-            if (flightTypeValue === 'Solo') {
-                memberToUpdate.instructor = '';
-                memberToUpdate.student = '';
-                memberToUpdate.group = '';
-                memberToUpdate.groupTraineeIds = [];
-            } else {
-                memberToUpdate.pilot = '';
-            }
-        } else {
-            // @ts-ignore - dynamic assignment
-            memberToUpdate[field] = value;
-        }
-
-        newCrew[index] = memberToUpdate;
-        setCrew(newCrew);
-        setLocalHighlight(null);
-    };
-    
-    const handleToggleTrainee = (index: number, traineeId: number) => {
-        // ... (existing logic)
-    };
-
-    const handleToggleCourse = (index: number, courseTrainees: Trainee[]) => {
-        // ... (existing logic)
-    };
-
-    const handleFlightNumberChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
-        const newFlightNumber = e.target.value;
-        const oldFlightNumber = flightNumber;
-        console.log('🔥🔥🔥 handleFlightNumberChange called:', { oldFlightNumber, newFlightNumber, isAddingTile });
-        setFlightNumber(newFlightNumber);
-
-        const detail = syllabusDetails.find(d => d.id === newFlightNumber);
-        if (detail) {
-            setDuration(detail.duration);
-        }
-
-        if ((newFlightNumber === 'SCT FORM') && !formationType) {
-            setFormationType(formationTypes[0]);
-        }
-        
-        if (newFlightNumber !== 'SCT FORM') {
-            setAircraftCount(1);
-        }
-    };
+    const [instructor, setInstructor] = useState(event.instructor || '');
+    const [student, setStudent] = useState(event.student || '');
+    const [formationType, setFormationType] = useState('MERL');
+    const [aircraftCount, setAircraftCount] = useState(2);
 
     const handleSave = () => {
-        console.log('💾 handleSave called with crew length:', crew.length);
-        console.log('💾 Formation info:', { formationType, flightNumber, hasFormationEvents: !!event.formationEvents });
-        const eventsToSave: ScheduleEvent[] = crew.map((c, index) => {
+        console.log('Saving flight:', flightNumber);
         
-        // Generate a single formation ID for all events in this formation
-        console.log('💾 DEBUG: flightNumber:', flightNumber);
-        console.log('💾 DEBUG: flightNumber === "SCT FORM":', flightNumber === 'SCT FORM');
-        const isFormation = flightNumber === 'SCT FORM';
-        const formationId = isFormation ? (event.formationId || `formation-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`) : undefined;
-        console.log('💾 DEBUG: isFormation:', isFormation);
-        console.log('💾 Generated formationId:', formationId);
-            let eventColor = event.color;
-            // ... (existing color logic)
-            
-            // Handle deployment assignment
-            let resourceId = event.resourceId;
-            if (selectedDeploymentId) {
-                // Find the selected deployment and assign its resourceId
-                const selectedDeployment = getCurrentDeployments().find(d => d.id === selectedDeploymentId);
-                if (selectedDeployment) {
-                    resourceId = selectedDeployment.resourceId;
-                    console.log(`Assigning event to deployment: ${selectedDeployment.id} (${resourceId})`);
-                }
-            }
-            
-            // If editing existing formation events, use their IDs and resourceIds
-            const existingFormationEvent = event.formationEvents?.[index];
-            const eventId = existingFormationEvent?.id || event.id;
-            const eventResourceId = existingFormationEvent?.resourceId || resourceId;
-            
-            return {
+        // Create normal flight events
+        if (flightNumber !== 'SCT FORM') {
+            const normalEvent: ScheduleEvent = {
                 ...event,
-                id: eventId, // Preserve existing event ID for formation events
-                type: eventType,
+                id: event.id,
+                type: event.type,
                 flightNumber,
                 startTime,
-                duration, // Use stateful duration
-                area: eventType === 'flight' ? area : undefined,
-                color: eventColor,
-                flightType: c.flightType,
-                instructor: c.instructor,
-                student: c.student,
-                pilot: c.pilot,
-                group: c.group,
-                groupTraineeIds: c.groupTraineeIds,
-                locationType,
-                origin: locationType === 'Local' ? school : origin,
-                destination: locationType === 'Local' ? school : destination,
-                resourceId: eventResourceId, // Preserve existing resourceId for formation events
-                formationId: formationId,
-                formationType: (flightNumber === 'SCT FORM') ? formationType : undefined,
-                formationPosition: (flightNumber === 'SCT FORM') ? index + 1 : undefined,
-                formationAircraftCount: (flightNumber === 'SCT FORM') ? crew.length : undefined,
-                formationMetadata: (flightNumber === 'SCT FORM') ? {
-                    formationType,
-                    aircraftCount: crew.length,
-                    createdAt: new Date().toISOString()
-                } : undefined,
+                duration,
+                area: event.type === 'flight' ? area : undefined,
+                instructor,
+                student,
+                pilot: instructor.split(' ')[1] || '',
+                resourceId: event.resourceId,
             };
-        });
+            console.log('Saving 1 normal flight');
+            onSave([normalEvent]);
+            return;
+        }
         
-        console.log('💾 Saving', eventsToSave.length, 'events');
-        eventsToSave.forEach((e, i) => {
-            console.log(`💾 Event ${i + 1}:`, {
-                id: e.id,
-                formationId: e.formationId,
-                formationType: e.formationType,
-                formationPosition: e.formationPosition,
-                instructor: e.instructor,
-                student: e.student,
-                resourceId: e.resourceId
-            });
-        });
-        onSave(eventsToSave);
-    }
-
-    const timeOptions = useMemo(() => {
-        const options = [];
-        for (let h = 0; h < 24; h++) {
-            for (let m = 0; m < 60; m += 5) {
-                const totalHours = h + m / 60;
-                const label = `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
-                options.push({ label, value: totalHours });
-            }
+        // Create multiple separate flight events
+        const events: ScheduleEvent[] = [];
+        for (let i = 0; i < aircraftCount; i++) {
+            const flightEvent: ScheduleEvent = {
+                ...event,
+                id: `${event.id}-${i}`,
+                type: event.type,
+                flightNumber: 'SCT FORM',
+                startTime,
+                duration,
+                area: event.type === 'flight' ? area : undefined,
+                instructor: `FLTLT Smith`,
+                student: `CSE301 - Student${i + 1}`,
+                pilot: `${formationType}${i + 1}`,
+                resourceId: `PC-21 ${i + 1}`,
+            };
+            events.push(flightEvent);
         }
-        return options;
-    }, []);
-
-    const traineeObject = useMemo(() => {
-        const traineeFullName = event.flightType === 'Dual' ? event.student : event.pilot;
-        if (!traineeFullName) return null;
-        return traineesData.find(t => t.fullName === traineeFullName) || null;
-    }, [event.flightType, event.student, event.pilot, traineesData]);
-
-    const handleSyllabusFocus = () => {
-        if (isOracleContext && !crew[0]?.student) {
-            setSyllabusSelectionError(true);
-            setTimeout(() => setSyllabusSelectionError(false), 2000);
-        }
+        
+        console.log(`Adding ${aircraftCount} separate flight events`);
+        onSave(events);
     };
-    
-    // ... (other handlers)
 
-    const renderCrewFields = (crewMember: CrewMember, index: number) => {
-        const isSctForm = flightNumber === 'SCT FORM';
-        const instructorList = oracleAvailableInstructors || instructors;
-        const traineeList = oracleAvailableTrainees || trainees;
-        
-        const formationCallsign = formationType && isSctForm 
-            ? `${formationType}${index + 1}` 
-            : `Aircraft ${index + 1}`;
+    return (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+            <div className="bg-gray-800 text-white rounded-lg p-6 w-full max-w-2xl max-h-[90vh] overflow-y-auto">
+                <div className="flex justify-between items-center mb-6">
+                    <h2 className="text-2xl font-bold">
+                        {isAddingTile ? 'Add Event' : 'Edit Event'}
+                    </h2>
+                    <button onClick={onClose} className="text-gray-400 hover:text-white">
+                        <X size={24} />
+                    </button>
+                </div>
 
-        return (
-            <div key={index} className={`space-y-4 ${crew.length > 1 ? 'p-3 bg-gray-700/50 rounded-lg' : ''}`}>
-                {crew.length > 1 && <h4 className="text-sm font-bold text-sky-400">{formationCallsign}</h4>}
-                
-                {/* ... existing fields ... */}
-                {crewMember.flightType === 'Dual' ? (
-                    <>
-                        <div>
-                            <label className="block text-sm font-medium text-gray-400">Instructor</label>
-                            <select value={crewMember.instructor} onChange={e => handleCrewChange(index, 'instructor', e.target.value)} className={`mt-1 block w-full bg-gray-700 border border-gray-600 rounded-md shadow-sm py-2 px-3 text-white focus:outline-none focus:ring-sky-500 focus:border-sky-500 sm:text-sm`}>
-                                <option value="" disabled>Select an instructor</option>
-                                {instructorList.map(name => <option key={name} value={name}>{name}</option>)}
-                            </select>
-                        </div>
-                        <div>
-                            <label className="block text-sm font-medium text-gray-400">Student</label>
-                            <select value={crewMember.student} onChange={e => handleCrewChange(index, 'student', e.target.value)} className={`mt-1 block w-full bg-gray-700 border border-gray-600 rounded-md shadow-sm py-2 px-3 text-white focus:outline-none focus:ring-sky-500 focus:border-sky-500 sm:text-sm`}>
-                                <option value="" disabled>Select a trainee</option>
-                                {traineeList.map(name => <option key={name} value={name}>{name}</option>)}
-                            </select>
-                        </div>
-                        {/* ... existing group logic ... */}
-                    </>
-                ) : (
-                     <div>
-                        <label className="block text-sm font-medium text-gray-400">Pilot</label>
-                        <select value={crewMember.pilot} onChange={e => handleCrewChange(index, 'pilot', e.target.value)} className="mt-1 block w-full bg-gray-700 border border-gray-600 rounded-md shadow-sm py-2 px-3 text-white focus:outline-none focus:ring-sky-500 focus:border-sky-500 sm:text-sm">
-                            <option value="" disabled>Select pilot</option>
-                            {traineeList.map(name => <option key={name} value={name}>{name}</option>)}
+                <div className="space-y-4">
+                    <div>
+                        <label className="block text-sm font-medium mb-2">Flight Number</label>
+                        <select 
+                            value={flightNumber} 
+                            onChange={(e) => setFlightNumber(e.target.value)}
+                            className="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2"
+                        >
+                            <option value="">Select flight number...</option>
+                            {isAddingTile && <option value="SCT FORM">SCT FORM</option>}
+                            <option value="BGF1">BGF1</option>
+                            <option value="BGF2">BGF2</option>
+                            <option value="BGF3">BGF3</option>
+                            <option value="BGF4">BGF4</option>
+                            <option value="BGF5">BGF5</option>
                         </select>
                     </div>
-                )}
-            </div>
-        );
-    }
-    
-    return (
-        <>
-            <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center" onClick={onClose}>
-                <div className="bg-gray-800 rounded-lg shadow-xl w-full max-w-4xl border border-gray-700 transform transition-all animate-fade-in flex flex-col h-[90vh]" onClick={e => e.stopPropagation()}>
-                    {/* ... (existing header) ... */}
-                    <div className="flex-1 flex flex-row overflow-hidden">
-                        <div className="flex-1 overflow-y-auto p-6">
-                            {isEditing ? (
-                                <div className="space-y-4">
-                                    <div className="grid grid-cols-3 gap-4">
-                                        <div className="relative">
-                                            <label className="block text-sm font-medium text-gray-400">Syllabus Item</label>
-                                            <select 
-                                                value={flightNumber} 
-                                                onChange={handleFlightNumberChange} 
-                                                onFocus={handleSyllabusFocus}
-                                                disabled={isOracleContext && !crew[0]?.student}
-                                                className={`mt-1 block w-full bg-gray-700 border border-gray-600 rounded-md shadow-sm py-2 px-3 text-white focus:outline-none focus:ring-sky-500 focus:border-sky-500 sm:text-sm disabled:bg-gray-700/50 disabled:cursor-not-allowed`}
-                                            >
-                                                {isOracleContext && oracleNextSyllabusEvent ? (
-                                                    <option value={oracleNextSyllabusEvent.id}>{oracleNextSyllabusEvent.id}</option>
-                                                ) : (
-                                                    syllabus.map(item => {
-                                                        const isFormation = item === 'SCT FORM';
-                                                        return <option key={item} value={item}>{item}</option>;
-                                                    })
-                                                )}
-                                            </select>
-                                            {syllabusSelectionError && (
-                                                <div className="absolute -bottom-6 left-0 text-xs text-red-400 animate-fade-in">Select a trainee first.</div>
-                                            )}
-                                        </div>
-                                        {/* ... (other fields) ... */}
-                                    </div>
-                                    {/* ... (other editing fields) ... */}
-                                    
-                                    {/* Formation Section */}
-                                    {(() => {
-                                        const shouldShow = flightNumber === 'SCT FORM';
-                                        console.log('  - flightNumber:', `"${flightNumber}"`);
-                                        console.log('  - isAddingTile:', isAddingTile);
-                                        console.log('  - shouldShow:', shouldShow);
-                                        console.log('  - aircraftCount:', aircraftCount);
-                                        console.log('  - syllabus length:', syllabus.length);
-                                        // Removed SCT Form log - only SCT FORM is now supported
-                                        
-                                        if (shouldShow) {
-                                        }
-                                        
-                                        return shouldShow && (
-                                            <div className="p-3 bg-gray-900/50 rounded-lg space-y-4" style={{border: '2px solid red', backgroundColor: 'rgba(255,0,0,0.1)'}}>
-                                                <h3 className="font-semibold text-gray-300">🔥 FORMATION SECTION VISIBLE</h3>
-                                                <div className="grid grid-cols-2 gap-4">
-                                                    <div>
-                                                        <label className="block text-sm font-medium text-gray-400">Formation Type</label>
-                                                        <select value={formationType} onChange={e => setFormationType(e.target.value)} className="mt-1 block w-full bg-gray-700 border border-gray-600 rounded-md shadow-sm py-2 px-3 text-white focus:outline-none focus:ring-sky-500 focus:border-sky-500 sm:text-sm">
-                                                            {formationTypes.map(type => <option key={type} value={type}>{type}</option>)}
-                                                        </select>
-                                                    </div>
-                                                    <div>
-                                                        <label className="block text-sm font-medium text-gray-400">Aircraft Count</label>
-                                                        <select value={aircraftCount} onChange={e => setAircraftCount(parseInt(e.target.value))} className="mt-1 block w-full bg-gray-700 border border-gray-600 rounded-md shadow-sm py-2 px-3 text-white focus:outline-none focus:ring-sky-500 focus:border-sky-500 sm:text-sm">
-                                                            {Array.from({length: 7}, (_, i) => i + 2).map(n => <option key={n} value={n}>{n}</option>)}
-                                                        </select>
-                                                    </div>
-                                                </div>
-                                            </div>
-                                        );
-                                    })()}
-                                    
-                                    <div className="space-y-4">{crew.map(renderCrewFields)}</div>
-                                    
-                                    {/* Add to Deployment Section */}
-                                    {(eventType === 'flight' || eventType === 'ftd' || eventType === 'cpt') && (
-                                        <div className="border-t border-gray-600 pt-6">
-                                            <h3 className="text-lg font-semibold text-white mb-4">Add to Deployment</h3>
-                                            <div className="space-y-3">
-                                                {getCurrentDeployments().length > 0 ? (
-                                                    getCurrentDeployments().map(deployment => (
-                                                        <label key={deployment.id} className="flex items-center space-x-3 cursor-pointer hover:bg-gray-700 p-2 rounded">
-                                                            <input
-                                                                type="checkbox"
-                                                                checked={selectedDeploymentId === deployment.id}
-                                                                onChange={(e) => {
-                                                                    if (e.target.checked) {
-                                                                        setSelectedDeploymentId(deployment.id);
-                                                                    } else {
-                                                                        setSelectedDeploymentId('');
-                                                                    }
-                                                                }}
-                                                                className="h-4 w-4 text-sky-600 bg-gray-700 border-gray-600 rounded focus:ring-sky-500"
-                                                            />
-                                                            <span className="text-sm text-gray-300">
-                                                                {formatDeploymentTitle(deployment)}
-                                                            </span>
-                                                            <span className="text-xs text-gray-500 ml-2">
-                                                                ({deployment.resourceId})
-                                                            </span>
-                                                        </label>
-                                                    ))
-                                                ) : (
-                                                    <p className="text-sm text-gray-500 italic">
-                                                        No deployments available for this event type
-                                                    </p>
-                                                )}
-                                            </div>
-                                        </div>
-                                    )}
-                                </div>
-                            ) : (
-                                // ... (existing view mode)
-                                <></>
-                            )}
-                        </div>
-                        {/* ... (existing button panel) ... */}
+
+                    <div>
+                        <label className="block text-sm font-medium mb-2">Start Time</label>
+                        <select 
+                            value={startTime} 
+                            onChange={(e) => setStartTime(Number(e.target.value))}
+                            className="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2"
+                        >
+                            {Array.from({ length: 96 }, (_, i) => {
+                                const hour = Math.floor(i * 15 / 60);
+                                const minute = (i * 15) % 60;
+                                const time = `${hour.toString().padStart(2, '0')}:${minute.toString().padStart(2, '0')}`;
+                                return <option key={i} value={i * 15}>{time}</option>;
+                            })}
+                        </select>
                     </div>
-                    {/* ... (existing footer) ... */}
+
+                    <div>
+                        <label className="block text-sm font-medium mb-2">Duration (min)</label>
+                        <input 
+                            type="number" 
+                            value={duration} 
+                            onChange={(e) => setDuration(Number(e.target.value))}
+                            className="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2"
+                        />
+                    </div>
+
+                    {event.type === 'flight' && (
+                        <div>
+                            <label className="block text-sm font-medium mb-2">Area</label>
+                            <select 
+                                value={area} 
+                                onChange={(e) => setArea(e.target.value)}
+                                className="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2"
+                            >
+                                <option value="A">A</option>
+                                <option value="B">B</option>
+                                <option value="C">C</option>
+                                <option value="D">D</option>
+                            </select>
+                        </div>
+                    )}
+
+                    {flightNumber !== 'SCT FORM' && (
+                        <>
+                            <div>
+                                <label className="block text-sm font-medium mb-2">Instructor</label>
+                                <input 
+                                    type="text" 
+                                    value={instructor} 
+                                    onChange={(e) => setInstructor(e.target.value)}
+                                    className="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2"
+                                />
+                            </div>
+                            <div>
+                                <label className="block text-sm font-medium mb-2">Student</label>
+                                <input 
+                                    type="text" 
+                                    value={student} 
+                                    onChange={(e) => setStudent(e.target.value)}
+                                    className="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2"
+                                />
+                            </div>
+                        </>
+                    )}
+
+                    {flightNumber === 'SCT FORM' && (
+                        <div className="p-4 bg-gray-900/50 rounded-lg space-y-4">
+                            <h3 className="font-semibold">Multiple Flight Events</h3>
+                            <div>
+                                <label className="block text-sm font-medium mb-2">Callsign Prefix</label>
+                                <select value={formationType} onChange={e => setFormationType(e.target.value)}>
+                                    <option value="MERL">MERL</option>
+                                    <option value="VANG">VANG</option>
+                                    <option value="COBR">COBR</option>
+                                    <option value="HAWK">HAWK</option>
+                                </select>
+                            </div>
+                            <div>
+                                <label className="block text-sm font-medium mb-2">Number of Flights to Add</label>
+                                <select value={aircraftCount} onChange={e => setAircraftCount(parseInt(e.target.value))}>
+                                    <option value="2">2</option>
+                                    <option value="3">3</option>
+                                    <option value="4">4</option>
+                                    <option value="5">5</option>
+                                </select>
+                            </div>
+                            <p className="text-sm text-gray-400">
+                                Will add {aircraftCount} separate flight events with callsigns {formationType}1, {formationType}2, etc.
+                            </p>
+                        </div>
+                    )}
+                </div>
+
+                <div className="flex justify-end gap-4 mt-6">
+                    <button 
+                        onClick={onClose}
+                        className="px-6 py-2 bg-gray-600 hover:bg-gray-700 rounded-lg"
+                    >
+                        Cancel
+                    </button>
+                    <button 
+                        onClick={handleSave}
+                        className="px-6 py-2 bg-blue-600 hover:bg-blue-700 rounded-lg"
+                    >
+                        Save
+                    </button>
                 </div>
             </div>
-            {/* ... (existing flyouts) ... */}
-        </>
+        </div>
     );
 };
-
-export default EventDetailModal;
