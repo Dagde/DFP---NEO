@@ -146,15 +146,31 @@ export const EventDetailModal: React.FC<EventDetailModalProps> = ({ event, onClo
         setEventType(event.type);
         setStartTime(event.startTime);
         setArea(event.area || 'A');
-        setAircraftCount(1);
-        setCrew([{ 
-            flightType: event.flightType, 
-            instructor: event.instructor || '', 
-            student: event.student || '', 
-            pilot: event.pilot || '',
-            group: event.group || '',
-            groupTraineeIds: event.groupTraineeIds || []
-        }]);
+        
+        // Handle formation events
+        if (event.formationEvents && event.formationEvents.length > 0) {
+            setAircraftCount(event.formationEvents.length);
+            const formationCrew = event.formationEvents.map(fe => ({
+                flightType: fe.flightType,
+                instructor: fe.instructor || '',
+                student: fe.student || '',
+                pilot: fe.pilot || '',
+                group: fe.group || '',
+                groupTraineeIds: fe.groupTraineeIds || []
+            }));
+            setCrew(formationCrew);
+        } else {
+            setAircraftCount(event.aircraftCount || 1);
+            setCrew([{ 
+                flightType: event.flightType, 
+                instructor: event.instructor || '', 
+                student: event.student || '', 
+                pilot: event.pilot || '',
+                group: event.group || '',
+                groupTraineeIds: event.groupTraineeIds || []
+            }]);
+        }
+        
         setIsEditing(isEditingDefault);
         setLocalHighlight(highlightedField);
         setLocationType(event.locationType || 'Local');
@@ -323,8 +339,14 @@ export const EventDetailModal: React.FC<EventDetailModalProps> = ({ event, onClo
                 }
             }
             
+            // If editing existing formation events, use their IDs and resourceIds
+            const existingFormationEvent = event.formationEvents?.[index];
+            const eventId = existingFormationEvent?.id || event.id;
+            const eventResourceId = existingFormationEvent?.resourceId || resourceId;
+            
             return {
                 ...event,
+                id: eventId, // Preserve existing event ID for formation events
                 type: eventType,
                 flightNumber,
                 startTime,
@@ -340,7 +362,7 @@ export const EventDetailModal: React.FC<EventDetailModalProps> = ({ event, onClo
                 locationType,
                 origin: locationType === 'Local' ? school : origin,
                 destination: locationType === 'Local' ? school : destination,
-                resourceId, // Updated with deployment assignment if selected
+                resourceId: eventResourceId, // Preserve existing resourceId for formation events
                 formationType: (flightNumber === 'SCT FORM') ? formationType : undefined,
                 formationPosition: (flightNumber === 'SCT FORM') ? index + 1 : undefined,
             };
@@ -382,7 +404,7 @@ export const EventDetailModal: React.FC<EventDetailModalProps> = ({ event, onClo
         const traineeList = oracleAvailableTrainees || trainees;
         
         const formationCallsign = formationType && isSctForm 
-            ? `${formationType} ${index + 1}` 
+            ? `${formationType}${index + 1}` 
             : `Aircraft ${index + 1}`;
 
         return (

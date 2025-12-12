@@ -3696,7 +3696,34 @@ const App: React.FC = () => {
             setIsPriorityEventCreation(!!options.isPriority);
             setOracleContextForModal(options.oracleContext || null);
         } else {
-            setSelectedEvent(event);
+            // Check if this is a formation event and find all related formation events
+            if (event.formationType && event.formationPosition) {
+                // Find all events with the same formationType, date, and startTime
+                const allEvents = oracleContext === 'nextDayBuild' || activeView === 'NextDayBuild' || activeView === 'Priorities' || activeView === 'ProgramData'
+                    ? nextDayBuildEvents.map(e => ({ ...e, date: buildDfpDate }))
+                    : (publishedSchedules[event.date] || []);
+                
+                const formationEvents = allEvents.filter(e => 
+                    e.formationType === event.formationType &&
+                    e.startTime === event.startTime &&
+                    e.date === event.date &&
+                    e.flightNumber === event.flightNumber
+                ).sort((a, b) => (a.formationPosition || 0) - (b.formationPosition || 0));
+                
+                if (formationEvents.length > 1) {
+                    // Create a merged event with all formation data
+                    const mergedEvent = {
+                        ...event,
+                        aircraftCount: formationEvents.length,
+                        formationEvents: formationEvents // Store all formation events
+                    };
+                    setSelectedEvent(mergedEvent);
+                } else {
+                    setSelectedEvent(event);
+                }
+            } else {
+                setSelectedEvent(event);
+            }
             setIsEditingDefault(false);
             setHighlightedField(null);
             const isHighPriority = highestPriorityEvents.some(p => p.id === event.id);
