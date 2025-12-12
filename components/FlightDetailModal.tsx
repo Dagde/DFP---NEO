@@ -725,8 +725,14 @@ export const EventDetailModal: React.FC<EventDetailModalProps> = ({ event, onClo
                 }
             }
             
+            // For SCT FORM events with multiple aircraft, generate unique IDs for each event
+            const eventId = (flightNumber === 'SCT FORM' && crew.length > 1) 
+                ? `${event.id}-${index}-${Date.now()}` 
+                : event.id;
+            
             return {
                 ...event,
+                id: eventId,
                 type: eventType,
                 flightNumber,
                 startTime,

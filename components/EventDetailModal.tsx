@@ -51,12 +51,12 @@ export const EventDetailModal: React.FC<EventDetailModalProps> = ({
             return;
         }
         
-        // Create multiple separate flight events
+        // Create multiple separate flight events with unique IDs
         const events: ScheduleEvent[] = [];
         for (let i = 0; i < aircraftCount; i++) {
             const flightEvent: ScheduleEvent = {
                 ...event,
-                id: `${event.id}-${i}`,
+                id: `${event.id}-${i}-${Date.now()}`,
                 type: event.type,
                 flightNumber: 'SCT FORM',
                 startTime,
