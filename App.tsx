@@ -974,15 +974,22 @@ function generateDfpInternal(
         return totalDutyHours;
     };
 
+    // Track staff who are intended for night assignments
+    const intendedNightStaff = new Set<string>();
+    
     // Check if a person (staff or trainee) is scheduled for ANY night events (flights, FTD, CPT, ground, Duty Sup)
+    // OR is intended for night assignments
     const isPersonScheduledForNightEvents = (personName: string): boolean => {
         if (nextEventLists.bnf.length < 2) return false; // No night flying scheduled
         
-        const personEvents = generatedEvents.filter(e => getPersonnel(e).includes(personName));
-        return personEvents.some(e => {
+        // Check both already scheduled night events AND intended night assignments
+        const hasScheduledNightEvents = generatedEvents.some(e => {
+            if (!getPersonnel(e).includes(personName)) return false;
             const bookingWindow = getEventBookingWindowForAlgo(e, syllabusDetails);
             return bookingWindow.start >= commenceNightFlying && bookingWindow.start < ceaseNightFlying;
         });
+        
+        return hasScheduledNightEvents || intendedNightStaff.has(personName);
     };
 
     setProgress({ message: 'Initializing DFP build...', percentage: 0 });
@@ -1202,6 +1209,8 @@ function generateDfpInternal(
             const trainee = bnfTrainees[index];
             if (trainee) {
                 nightPairings.set(trainee.fullName, nfi.name);
+                // Track this instructor for night assignments
+                intendedNightStaff.add(nfi.name);
 
                 const instructorToUpdate = instructors.find(i => i.idNumber === nfi.idNumber);
                 if (instructorToUpdate) {
@@ -1686,6 +1695,29 @@ function generateDfpInternal(
     
     const lastFlightEndTime = dutySupEndTime;
     
+    // CRITICAL FIX: Determine night duty supervisor FIRST before scheduling day duty supervisors
+    // This ensures they are marked as intendedNightStaff and excluded from day scheduling
+    let nightDutySup: Instructor | null = null;
+    if (nextEventLists.bnf.length >= 2) {
+        console.log('Pre-selecting night duty supervisor to prevent day assignments...');
+        const nightFlyingInstructorNames = new Set(Array.from(nightPairings.values()));
+        const nightSupPool = instructors.filter(s => 
+            (s.isFlyingSupervisor || s.unavailability.some(u => u.reason === 'TMUF - Ground Duties only' && buildDate >= u.startDate && buildDate < u.endDate)) &&
+            !nightFlyingInstructorNames.has(s.name)
+        );
+        
+        // Find available night supervisor
+        nightDutySup = nightSupPool.find(sup => {
+            return !isPersonStaticallyUnavailable(sup, commenceNightFlying, ceaseNightFlying, buildDate, 'duty_sup');
+        }) || null;
+        
+        if (nightDutySup) {
+            // CRITICAL: Mark this instructor as intended for night duty BEFORE day scheduling
+            intendedNightStaff.add(nightDutySup.name);
+            console.log(`Night duty supervisor pre-selected: ${nightDutySup.name} (marked for night duty only)`);
+        }
+    }
+    
     // NEW RULE: COMPLETE separation - NO day events for instructors with night events
     const dutySupEligible = instructors.filter(i => 
         (i.isFlyingSupervisor || i.unavailability.some(u => u.reason === 'TMUF - Ground Duties only' && buildDate >= u.startDate && buildDate < u.endDate)) &&
@@ -1827,35 +1859,19 @@ function generateDfpInternal(
     }
 
     // 2. Schedule DUTY SUP for Night Flying window (if 2+ BNF trainees)
-    if (nextEventLists.bnf.length >= 2) {
+    if (nextEventLists.bnf.length >= 2 && nightDutySup) {
         setProgress({ message: 'Scheduling Night Duty Supervisor...', percentage: 42 });
-        const nightFlyingInstructorNames = new Set(Array.from(nightPairings.values()));
-        const nightSupPool = dutySupEligible.filter(s => !nightFlyingInstructorNames.has(s.name));
+        console.log(`Scheduling night duty supervisor: ${nightDutySup.name}`);
         
-        // Randomize night supervisor selection
-        const availableNightSupervisors = nightSupPool.filter(sup => {
-            return !isPersonStaticallyUnavailable(sup, commenceNightFlying, ceaseNightFlying, buildDate, 'duty_sup');
-        }).sort(() => 0.5 - Math.random());
-
-        // Try to find a dedicated night supervisor first
-        let nightDutySup = availableNightSupervisors.length > 0 ? availableNightSupervisors[0] : null;
-        
-        // If no dedicated night supervisor available, try anyone from eligible pool
-        if (!nightDutySup) {
-            nightDutySup = dutySupEligible.find(sup => {
-                return !isPersonStaticallyUnavailable(sup, commenceNightFlying, ceaseNightFlying, buildDate, 'duty_sup');
-            });
-        }
-
-        // Schedule Night Duty Sup only when night flying is programmed (2+ BNF trainees) and a supervisor is available
-        if (nightDutySup) {
-             generatedEvents.push({
-                id: uuidv4(), type: 'ground', instructor: nightDutySup.name,
-                flightNumber: 'Night Duty Sup', duration: ceaseNightFlying - commenceNightFlying, startTime: commenceNightFlying, resourceId: 'Duty Sup',
-                color: 'bg-amber-700/50', flightType: 'Dual', locationType: 'Local', origin: school, destination: school
-            });
-            eventCounts.get(nightDutySup.name)!.dutySup++;
-        }
+        // Schedule Night Duty Sup using the pre-selected supervisor
+        generatedEvents.push({
+            id: uuidv4(), type: 'ground', instructor: nightDutySup.name,
+            flightNumber: 'Night Duty Sup', duration: ceaseNightFlying - commenceNightFlying, startTime: commenceNightFlying, resourceId: 'Duty Sup',
+            color: 'bg-amber-700/50', flightType: 'Dual', locationType: 'Local', origin: school, destination: school
+        });
+        eventCounts.get(nightDutySup.name)!.dutySup++;
+    } else if (nextEventLists.bnf.length >= 2 && !nightDutySup) {
+        console.log('WARNING: Night flying scheduled but no night duty supervisor available!');
     }
 
     // NEW SCHEDULING ORDER (Lines 105-126 from DFP Build Rules)
