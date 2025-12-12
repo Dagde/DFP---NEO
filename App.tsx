@@ -4778,7 +4778,6 @@ updates.forEach(update => {
             options.push('SCT FORM');
         }
         
-        console.log('Final options with SCT FORM:', options);
         return options;
     }, [syllabusDetails]);
     

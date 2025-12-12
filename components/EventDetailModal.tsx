@@ -87,10 +87,6 @@ export const EventDetailModal: React.FC<EventDetailModalProps> = ({ event, onClo
     const [isEditing, setIsEditing] = useState(isEditingDefault);
     
     // Debug: Log received syllabus
-    console.log('🔥🔥🔥 EventDetailModal received syllabus:', syllabus.slice(0, 10), '... (total:', syllabus.length, ')');
-    console.log('🔥🔥🔥 SCT FORM in syllabus:', syllabus.includes('SCT FORM'));
-    console.log('🔥🔥🔥 SCT FORM in syllabus only:', syllabus.includes('SCT Form'));
-    console.log('🔥🔥🔥 All SCT-related options:', syllabus.filter(item => item.includes('SCT')));
     const [localHighlight, setLocalHighlight] = useState(highlightedField);
     const [showCancelConfirm, setShowCancelConfirm] = useState(false);
 
@@ -208,7 +204,6 @@ export const EventDetailModal: React.FC<EventDetailModalProps> = ({ event, onClo
 
     useEffect(() => {
         const isFormation = flightNumber === 'SCT FORM';
-        console.log('Formation check:', { flightNumber, isFormation, aircraftCount, crewLength: crew.length });
         const newSize = isFormation ? aircraftCount : 1;
         if (crew.length !== newSize) {
              const newCrew = Array.from({ length: newSize }, (_, i) => {
@@ -234,7 +229,6 @@ export const EventDetailModal: React.FC<EventDetailModalProps> = ({ event, onClo
     }, [crew[0]?.student, isOracleContext, oracleAvailableTrainees, oracleNextSyllabusEvent]);
 
     // Add debugging at render start
-    console.log('🔥🔥🔥 EventDetailModal render start - flightNumber:', flightNumber, 'isAddingTile:', isAddingTile);
     
     // Add immediate visual confirmation that changes are loaded
     if (typeof window !== 'undefined') {
@@ -305,7 +299,6 @@ export const EventDetailModal: React.FC<EventDetailModalProps> = ({ event, onClo
         }
 
         if ((newFlightNumber === 'SCT FORM') && !formationType) {
-            console.log('🔥 Setting formationType to:', formationTypes[0]);
             setFormationType(formationTypes[0]);
         }
         
@@ -452,7 +445,6 @@ export const EventDetailModal: React.FC<EventDetailModalProps> = ({ event, onClo
                                                 ) : (
                                                     syllabus.map(item => {
                                                         const isFormation = item === 'SCT FORM';
-                                                        console.log('Syllabus item:', item, 'is SCT FORM:', isFormation);
                                                         return <option key={item} value={item}>{item}</option>;
                                                     })
                                                 )}
@@ -468,18 +460,14 @@ export const EventDetailModal: React.FC<EventDetailModalProps> = ({ event, onClo
                                     {/* Formation Section */}
                                     {(() => {
                                         const shouldShow = flightNumber === 'SCT FORM';
-                                        console.log('🔥 Formation Section Debug:');
                                         console.log('  - flightNumber:', `"${flightNumber}"`);
                                         console.log('  - isAddingTile:', isAddingTile);
                                         console.log('  - shouldShow:', shouldShow);
-                                        console.log('  - formationType:', formationType);
                                         console.log('  - aircraftCount:', aircraftCount);
                                         console.log('  - syllabus length:', syllabus.length);
-                                        console.log('  - SCT FORM in syllabus:', syllabus.includes('SCT FORM'));
                                         // Removed SCT Form log - only SCT FORM is now supported
                                         
                                         if (shouldShow) {
-                                            console.log('🔥 RENDERING FORMATION SECTION NOW!');
                                         }
                                         
                                         return shouldShow && (
