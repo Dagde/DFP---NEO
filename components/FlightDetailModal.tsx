@@ -745,6 +745,8 @@ export const EventDetailModal: React.FC<EventDetailModalProps> = ({ event, onClo
                 destination: locationType === 'Local' ? school : destination,
                 formationType: flightNumber === 'SCT FORM' ? formationType : undefined,
                 formationPosition: flightNumber === 'SCT FORM' ? index + 1 : undefined,
+                callsign: flightNumber === 'SCT FORM' ? `${formationType}${index + 1}` : undefined,
+                formationId: undefined,
                 isDeploy: eventType === 'flight' && locationType === 'Land Away' ? isDeploy : undefined,
                 
                 // Explicit Deployment Period
@@ -939,8 +941,8 @@ const renderCrewFields = (crewMember: CrewMember, index: number) => {
     const isSctForm = flightNumber === 'SCT FORM';
     const isSctGeneric = flightNumber.startsWith('SCT');
     
-    const formationCallsign = formationType && isSctForm 
-        ? `${formationType} ${index + 1}` 
+    const formationCallsign = isSctForm && formationType
+        ? `${formationType}${index + 1}` 
         : `Aircraft ${index + 1}`;
     
     // Determine if we should use staff-only instructors

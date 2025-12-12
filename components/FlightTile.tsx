@@ -237,17 +237,15 @@ const FlightTile: React.FC<FlightTileProps> = ({ event, traineesData, onSelectEv
   };
   const studentDisplay = getStudentDisplay();
 
-  // Check for formation callsign first, then fall back to pilot callsign
-  const formationCallsign = event.formationType && event.formationPosition
-      ? `${event.formationType}${event.formationPosition}`
-      : '';
+  // Check for stored callsign first (for SCT FORM events), then fall back to pilot callsign
+  const storedCallsign = event.callsign || '';
   
   const callsignInfo = picName ? personnelData.get(picName) : undefined;
   const pilotCallsign = callsignInfo && callsignInfo.callsignNumber > 0
       ? `${callsignInfo.callsignPrefix} ${String(callsignInfo.callsignNumber).padStart(3, '0')}`
       : '';
   
-  const callsign = formationCallsign || pilotCallsign;
+  const callsign = storedCallsign || pilotCallsign;
 
   const renderContent = () => {
     if (isSmallTile) return null; // Don't render internal text if tile is small

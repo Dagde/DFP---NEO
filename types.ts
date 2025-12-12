@@ -150,6 +150,7 @@ export interface ScheduleEvent {
   formationId?: string;
   formationType?: string;
   formationPosition?: number;
+  callsign?: string;
   attendees?: string[];
   isUnavailabilityConflict?: boolean;
   authNotes?: string;
