@@ -730,6 +730,11 @@ export const EventDetailModal: React.FC<EventDetailModalProps> = ({ event, onClo
                 ? `${event.id}-${index}-${Date.now()}` 
                 : event.id;
             
+            // For SCT FORM events with multiple aircraft, clear resourceId so findAvailableResourceId assigns them to different lines
+            if (flightNumber === 'SCT FORM' && crew.length > 1) {
+                resourceId = '';
+            }
+            
             return {
                 ...event,
                 id: eventId,

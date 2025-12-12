@@ -65,7 +65,7 @@ export const EventDetailModal: React.FC<EventDetailModalProps> = ({
                 instructor: `FLTLT Smith`,
                 student: `CSE301 - Student${i + 1}`,
                 pilot: `${formationType}${i + 1}`,
-                resourceId: `PC-21 ${i + 1}`,
+                resourceId: '', // Empty so findAvailableResourceId assigns to different lines
                 formationType: formationType,
                 formationPosition: i + 1,
                 callsign: `${formationType}${i + 1}`,
