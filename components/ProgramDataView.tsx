@@ -25,6 +25,70 @@ const StatCard: React.FC<{ title: string; value: string | number; description?: 
   </div>
 );
 
+// Helper component for displaying availability cards
+const AvailabilityCard: React.FC<{
+  title: string;
+  trainees: Trainee[];
+  color: string;
+  bgColor: string;
+  borderColor: string;
+  hoverBgColor?: string;
+  hoverBorderColor?: string;
+  courseColors?: { [key: string]: string };
+}> = ({ title, trainees, color, bgColor, borderColor, hoverBgColor = '', hoverBorderColor = '', courseColors = {} }) => {
+  return (
+    <div className={`${bgColor} ${hoverBgColor} ${borderColor} ${hoverBorderColor} rounded-lg p-4 border transition-all duration-300 ease-in-out transform hover:scale-[1.02] hover:shadow-lg`}>
+      <div className="flex items-center justify-between mb-3">
+        <h3 className={`text-lg font-semibold ${color} transition-colors`}>{title}</h3>
+        <span className={`text-sm font-medium ${color} bg-gray-700/50 px-2 py-1 rounded-full`}>
+          {trainees.length}
+        </span>
+      </div>
+      <div className="space-y-2 max-h-64 overflow-y-auto scrollbar-thin scrollbar-thumb-gray-600 scrollbar-track-gray-800">
+        {trainees.length === 0 ? (
+          <div className="flex flex-col items-center justify-center py-8 text-gray-400">
+            <svg className="w-8 h-8 mb-2 opacity-50" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m16 0v5a2 2 0 01-2 2H6a2 2 0 01-2-2v-5m16 0h-2.586a1 1 0 00-.707.293l-2.414 2.414a1 1 0 01-.707.293h-3.172a1 1 0 01-.707-.293l-2.414-2.414A1 1 0 006.586 13H4" />
+            </svg>
+            <p className="text-sm italic">No trainees in this category</p>
+          </div>
+        ) : (
+          trainees.map(trainee => (
+            <div 
+              key={trainee.id} 
+              className="flex items-center justify-between p-3 bg-gray-700/50 rounded-md hover:bg-gray-600/60 transition-all duration-200 ease-in-out group cursor-pointer"
+            >
+              <div className="flex items-center space-x-3">
+                <div 
+                  className={`w-4 h-4 rounded-full transition-all duration-200 group-hover:scale-125 ${
+                    courseColors[trainee.course] 
+                      ? `border-2 border-gray-300` 
+                      : `${color.replace('text-', 'bg-')}`
+                  }`}
+                  style={courseColors[trainee.course] ? { backgroundColor: courseColors[trainee.course] } : {}}
+                ></div>
+                <div className="flex-1">
+                  <p className="text-white text-sm font-medium group-hover:text-gray-100 transition-colors">
+                    {trainee.name}
+                  </p>
+                  <p className="text-gray-400 text-xs group-hover:text-gray-300 transition-colors">
+                    {trainee.course} • {trainee.rank}
+                  </p>
+                </div>
+              </div>
+              <div className="opacity-0 group-hover:opacity-100 transition-opacity duration-200">
+                <svg className="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                </svg>
+              </div>
+            </div>
+          ))
+        )}
+      </div>
+    </div>
+  );
+};
+
 const ProgramDataView: React.FC<ProgramDataViewProps> = ({ 
     date, 
     events, 
@@ -36,6 +100,9 @@ const ProgramDataView: React.FC<ProgramDataViewProps> = ({
     syllabusDetails,
     traineeLMPs
 }) => {
+    // State for availability filtering
+    const [availabilityFilter, setAvailabilityFilter] = useState<string>('all');
+    const [searchTerm, setSearchTerm] = useState<string>('');
 
     const getCourseFromStudent = (studentName: string): string | null => {
         if (!studentName) return null;
@@ -322,6 +389,69 @@ const ProgramDataView: React.FC<ProgramDataViewProps> = ({
         return { nextEventLists, nextPlusOneLists };
     }, [traineesData, traineeLMPs, scores, date]);
 
+    // Get all unique courses for filter dropdown
+    const allCourses = useMemo(() => {
+        const courses = new Set(traineesData.map(trainee => trainee.course).filter(course => course));
+        return Array.from(courses).sort();
+    }, [traineesData]);
+
+    // Categorize trainees by availability
+    const { availableTrainees, unavailableTrainees, pausedTrainees } = useMemo(() => {
+        const today = date; // Use the selected date from props
+        const available: Trainee[] = [];
+        const unavailable: Trainee[] = [];
+        const paused: Trainee[] = [];
+
+        traineesData.forEach(trainee => {
+            // Check if trainee is paused
+            if (trainee.isPaused) {
+                paused.push(trainee);
+                return;
+            }
+
+            // Check if trainee has unavailability for the selected date
+            const hasUnavailability = (trainee.unavailability || []).some(period => 
+                today >= period.startDate && today < period.endDate
+            );
+
+            if (hasUnavailability) {
+                unavailable.push(trainee);
+            } else {
+                available.push(trainee);
+            }
+        });
+
+        return {
+            availableTrainees: available,
+            unavailableTrainees: unavailable,
+            pausedTrainees: paused
+        };
+    }, [traineesData, date]);
+
+    // Filter trainees based on selected course and search term
+    const filterTrainees = (trainees: Trainee[]) => {
+        return trainees.filter(trainee => {
+            const matchesCourse = availabilityFilter === 'all' || trainee.course === availabilityFilter;
+            const matchesSearch = searchTerm === '' || 
+                trainee.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                trainee.course.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                trainee.rank.toLowerCase().includes(searchTerm.toLowerCase());
+            return matchesCourse && matchesSearch;
+        });
+    };
+
+    const filteredAvailableTrainees = useMemo(() => {
+        return filterTrainees(availableTrainees);
+    }, [availableTrainees, availabilityFilter, searchTerm]);
+
+    const filteredUnavailableTrainees = useMemo(() => {
+        return filterTrainees(unavailableTrainees);
+    }, [unavailableTrainees, availabilityFilter, searchTerm]);
+
+    const filteredPausedTrainees = useMemo(() => {
+        return filterTrainees(pausedTrainees);
+    }, [pausedTrainees, availabilityFilter, searchTerm]);
+
     const traineesWaitingForNightFlying = useMemo(() => {
         const waitingList: { trainee: Trainee; event: SyllabusItemDetail }[] = [];
         const activeTrainees = traineesData.filter(t => !t.isPaused);
@@ -601,6 +731,113 @@ const ProgramDataView: React.FC<ProgramDataViewProps> = ({
           ) : (
               <p className="text-gray-500 text-center py-8">No events found for active courses.</p>
           )}
+        </div>
+
+        {/* Trainee Availability Section */}
+        <div className="bg-gray-800 rounded-lg shadow-lg p-6 border border-gray-700 mb-6">
+          <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-4 space-y-4 sm:space-y-0">
+            <h2 className="text-xl font-semibold text-sky-400">Trainee Availability</h2>
+            <div className="flex flex-col sm:flex-row items-start sm:items-center space-y-2 sm:space-y-0 sm:space-x-4 w-full sm:w-auto">
+              <div className="relative w-full sm:w-auto">
+                <input
+                  type="text"
+                  placeholder="Search trainees..."
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                  className="w-full sm:w-64 px-3 py-2 pl-10 bg-gray-700 border border-gray-600 rounded-md text-white text-sm placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-sky-500 focus:border-transparent transition-all"
+                />
+                <svg className="absolute left-3 top-2.5 w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                </svg>
+                {searchTerm && (
+                  <button
+                    onClick={() => setSearchTerm('')}
+                    className="absolute right-3 top-2.5 text-gray-400 hover:text-white transition-colors"
+                  >
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                  </button>
+                )}
+              </div>
+              <div className="flex items-center space-x-2">
+                <label htmlFor="availability-filter" className="text-sm font-medium text-gray-300 whitespace-nowrap">Course:</label>
+                <select 
+                  id="availability-filter"
+                  value={availabilityFilter}
+                  onChange={(e) => setAvailabilityFilter(e.target.value)}
+                  className="px-3 py-2 bg-gray-700 border border-gray-600 rounded-md text-white text-sm focus:outline-none focus:ring-2 focus:ring-sky-500 focus:border-transparent transition-all"
+                >
+                  <option value="all">All Courses</option>
+                  {allCourses.map(course => (
+                    <option key={course} value={course}>{course}</option>
+                  ))}
+                </select>
+              </div>
+            </div>
+          </div>
+          
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            <AvailabilityCard 
+              title="Available Trainees"
+              trainees={filteredAvailableTrainees}
+              color="text-green-400"
+              bgColor="bg-green-900/20"
+              borderColor="border-green-700"
+              hoverBgColor="hover:bg-green-900/30"
+              hoverBorderColor="hover:border-green-600"
+              courseColors={courseColors}
+            />
+            <AvailabilityCard 
+              title="Unavailable Trainees"
+              trainees={filteredUnavailableTrainees}
+              color="text-red-400"
+              bgColor="bg-red-900/20"
+              borderColor="border-red-700"
+              hoverBgColor="hover:bg-red-900/30"
+              hoverBorderColor="hover:border-red-600"
+              courseColors={courseColors}
+            />
+            <AvailabilityCard 
+              title="Paused Trainees"
+              trainees={filteredPausedTrainees}
+              color="text-yellow-400"
+              bgColor="bg-yellow-900/20"
+              borderColor="border-yellow-700"
+              hoverBgColor="hover:bg-yellow-900/30"
+              hoverBorderColor="hover:border-yellow-600"
+              courseColors={courseColors}
+            />
+          </div>
+          
+          {/* Statistics */}
+          <div className="mt-6 grid grid-cols-1 md:grid-cols-4 gap-4">
+            <div className="bg-gray-700/50 rounded-lg p-4 border border-gray-600">
+              <p className="text-sm text-gray-400">Total Trainees</p>
+              <p className="text-2xl font-bold text-white">{traineesData.length}</p>
+            </div>
+            <div className="bg-green-700/20 rounded-lg p-4 border border-green-600">
+              <p className="text-sm text-green-400">Available</p>
+              <p className="text-2xl font-bold text-green-400">{filteredAvailableTrainees.length}</p>
+              <p className="text-xs text-green-300">
+                {traineesData.length > 0 ? Math.round((filteredAvailableTrainees.length / traineesData.length) * 100) : 0}%
+              </p>
+            </div>
+            <div className="bg-red-700/20 rounded-lg p-4 border border-red-600">
+              <p className="text-sm text-red-400">Unavailable</p>
+              <p className="text-2xl font-bold text-red-400">{filteredUnavailableTrainees.length}</p>
+              <p className="text-xs text-red-300">
+                {traineesData.length > 0 ? Math.round((filteredUnavailableTrainees.length / traineesData.length) * 100) : 0}%
+              </p>
+            </div>
+            <div className="bg-yellow-700/20 rounded-lg p-4 border border-yellow-600">
+              <p className="text-sm text-yellow-400">Paused</p>
+              <p className="text-2xl font-bold text-yellow-400">{filteredPausedTrainees.length}</p>
+              <p className="text-xs text-yellow-300">
+                {traineesData.length > 0 ? Math.round((filteredPausedTrainees.length / traineesData.length) * 100) : 0}%
+              </p>
+            </div>
+          </div>
         </div>
 
         <div className="bg-gray-800 rounded-lg shadow-lg p-6 border border-gray-700">

@@ -58,6 +58,7 @@ const InstructorScheduleView: React.FC<InstructorScheduleViewProps> = ({ date, o
 
   const [realtimeConflict, setRealtimeConflict] = useState<{ conflictingEventId: string; conflictedPersonName: string; } | null>(null);
   const [hoveredEventId, setHoveredEventId] = useState<string | null>(null);
+  const [hoveredRowIndex, setHoveredRowIndex] = useState<number | null>(null);
   const scheduleGridRef = useRef<HTMLDivElement>(null);
   const isInitialLoad = useRef(true);
   const prevZoomLevelRef = useRef(zoomLevel);
@@ -352,80 +353,7 @@ const InstructorScheduleView: React.FC<InstructorScheduleViewProps> = ({ date, o
     );
   };
 
-  const renderPrePostBars = () => {
-    const bars: React.ReactElement[] = [];
   
-    instructors.forEach((instructor, rowIndex) => {
-      const instructorEvents = events
-        .filter(e => e.instructor === instructor.name)
-        .sort((a, b) => a.startTime - b.startTime);
-  
-      for (let i = 0; i < instructorEvents.length; i++) {
-        const currentEvent = instructorEvents[i];
-        const prevEvent = instructorEvents[i - 1];
-        const nextEvent = instructorEvents[i + 1];
-  
-        const currentSyllabus = syllabusDetails.find(d => d.id === currentEvent.flightNumber);
-        if (!currentSyllabus) continue;
-        
-        // Check if this event has any conflicts involving pre/post/turnaround times
-        const hasPreConflict = prevEvent && (() => {
-          const prevSyllabus = syllabusDetails.find(d => d.id === prevEvent.flightNumber);
-          if (!prevSyllabus) return false;
-          const prevPostEnd = prevEvent.startTime + prevEvent.duration + prevSyllabus.postFlightTime;
-          const currentPreStart = currentEvent.startTime - currentSyllabus.preFlightTime;
-          return prevPostEnd > currentPreStart;
-        })();
-        
-        const hasPostConflict = nextEvent && (() => {
-          const nextSyllabus = syllabusDetails.find(d => d.id === nextEvent.flightNumber);
-          if (!nextSyllabus) return false;
-          const currentPostEnd = currentEvent.startTime + currentEvent.duration + currentSyllabus.postFlightTime;
-          const nextPreStart = nextEvent.startTime - nextSyllabus.preFlightTime;
-          return currentPostEnd > nextPreStart;
-        })();
-        
-        const isHovered = hoveredEventId === currentEvent.id;
-        const hasAnyConflict = hasPreConflict || hasPostConflict;
-        
-        // Only render bars if: (hovered OR has conflict)
-        if (!isHovered && !hasAnyConflict) continue;
-        
-        const renderBar = (duration: number, startTime: number, isConflicting: boolean, key: string) => {
-          const barWidth = duration * PIXELS_PER_HOUR * zoomLevel;
-          const barHeight = ROW_HEIGHT * 0.25;
-          const barTop = rowIndex * ROW_HEIGHT + (ROW_HEIGHT - barHeight) / 2;
-          const barLeft = (startTime - START_HOUR) * PIXELS_PER_HOUR * zoomLevel;
-  
-          const baseClassName = "absolute pointer-events-none z-20 rounded-full border shadow-lg backdrop-blur-sm transition-colors duration-200";
-          const className = `${baseClassName} ${isConflicting ? 'bg-red-500/50 border-red-400/30' : 'bg-white/50 border-white/30'}`;
-  
-          const style: React.CSSProperties = { 
-            left: `${barLeft}px`, 
-            top: `${barTop}px`, 
-            width: `${barWidth}px`, 
-            height: `${barHeight}px` 
-          };
-          
-          bars.push(<div key={key} style={style} className={className} />);
-        };
-        
-        // Render pre-flight bar
-        if (currentSyllabus.preFlightTime > 0) {
-          const preStartTime = currentEvent.startTime - currentSyllabus.preFlightTime;
-          renderBar(currentSyllabus.preFlightTime, preStartTime, hasPreConflict || false, `${currentEvent.id}-pre`);
-        }
-        
-        // Render post-flight bar
-        if (currentSyllabus.postFlightTime > 0) {
-          const postStartTime = currentEvent.startTime + currentEvent.duration;
-          renderBar(currentSyllabus.postFlightTime, postStartTime, hasPostConflict || false, `${currentEvent.id}-post`);
-        }
-      }
-    });
-  
-    return <>{bars}</>;
-  };
 
   return (
     <div ref={scrollContainerRef} className="flex-1 overflow-auto relative bg-gray-900">
@@ -463,6 +391,8 @@ const InstructorScheduleView: React.FC<InstructorScheduleViewProps> = ({ date, o
             personnel={instructors}
             rowHeight={ROW_HEIGHT}
             onPersonClick={onSelectInstructor}
+            onRowEnter={setHoveredRowIndex}
+            onRowLeave={() => setHoveredRowIndex(null)}
           />
         </div>
 
@@ -477,14 +407,94 @@ const InstructorScheduleView: React.FC<InstructorScheduleViewProps> = ({ date, o
             {renderNightShade()}
             {renderDaylightLines()}
             {renderCurrentTimeIndicator()}
-            {showValidation && renderPrePostBars()}
             {instructors.flatMap((instructor, rowIndex) => {
+              // Render row highlight if this row is hovered
+              const rowHighlight = hoveredRowIndex === rowIndex ? (
+                <div
+                  key={`row-highlight-${rowIndex}`}
+                  className="absolute top-0 left-0 right-0 pointer-events-none z-10"
+                  style={{
+                    height: ROW_HEIGHT,
+                    top: rowIndex * ROW_HEIGHT,
+                    backgroundColor: 'rgba(255, 255, 255, 0.05)'
+                  }}
+                />
+              ) : null;
+
+              // Render pre/post bars for this instructor's row first
+              const barsForThisRow: React.ReactElement[] = [];
+              
+              if (showValidation) {
+                const instructorEventsForBars = events
+                  .filter(e => e.instructor === instructor.name)
+                  .sort((a, b) => a.startTime - b.startTime);
+                
+                for (let i = 0; i < instructorEventsForBars.length; i++) {
+                  const currentEvent = instructorEventsForBars[i];
+                  const prevEvent = instructorEventsForBars[i - 1];
+                  const nextEvent = instructorEventsForBars[i + 1];
+                  
+                  const currentSyllabus = syllabusDetails.find(d => d.id === currentEvent.flightNumber);
+                  if (!currentSyllabus) continue;
+                  
+                  const hasPreConflict = prevEvent && (() => {
+                    const prevSyllabus = syllabusDetails.find(d => d.id === prevEvent.flightNumber);
+                    if (!prevSyllabus) return false;
+                    const prevPostEnd = prevEvent.startTime + prevEvent.duration + prevSyllabus.postFlightTime;
+                    const currentPreStart = currentEvent.startTime - currentSyllabus.preFlightTime;
+                    return prevPostEnd > currentPreStart;
+                  })();
+                  
+                  const hasPostConflict = nextEvent && (() => {
+                    const nextSyllabus = syllabusDetails.find(d => d.id === nextEvent.flightNumber);
+                    if (!nextSyllabus) return false;
+                    const currentPostEnd = currentEvent.startTime + currentEvent.duration + currentSyllabus.postFlightTime;
+                    const nextPreStart = nextEvent.startTime - nextSyllabus.preFlightTime;
+                    return currentPostEnd > nextPreStart;
+                  })();
+                  
+                  const isHovered = hoveredEventId === currentEvent.id;
+                  const hasAnyConflict = hasPreConflict || hasPostConflict;
+                  
+                  if (!isHovered && !hasAnyConflict) continue;
+                  
+                  const renderBar = (duration: number, startTime: number, isConflicting: boolean, key: string) => {
+                    const barWidth = duration * PIXELS_PER_HOUR * zoomLevel;
+                    const barHeight = ROW_HEIGHT * 0.25;
+                    const barTop = rowIndex * ROW_HEIGHT + (ROW_HEIGHT - barHeight) / 2;
+                    const barLeft = (startTime - START_HOUR) * PIXELS_PER_HOUR * zoomLevel;
+                    
+                    const baseClassName = "absolute pointer-events-none z-20 rounded-full border shadow-lg backdrop-blur-sm transition-colors duration-200";
+                    const className = `${baseClassName} ${isConflicting ? 'bg-red-500/50 border-red-400/30' : 'bg-white/50 border-white/30'}`;
+                    
+                    const style: React.CSSProperties = { 
+                      left: `${barLeft}px`, 
+                      top: `${barTop}px`, 
+                      width: `${barWidth}px`, 
+                      height: `${barHeight}px` 
+                    };
+                    
+                    barsForThisRow.push(<div key={key} style={style} className={className} />);
+                  };
+                  
+                  if (currentSyllabus.preFlightTime > 0) {
+                    const preStartTime = currentEvent.startTime - currentSyllabus.preFlightTime;
+                    renderBar(currentSyllabus.preFlightTime, preStartTime, hasPreConflict || false, `${currentEvent.id}-pre-${rowIndex}`);
+                  }
+                  
+                  if (currentSyllabus.postFlightTime > 0) {
+                    const postStartTime = currentEvent.startTime + currentEvent.duration;
+                    renderBar(currentSyllabus.postFlightTime, postStartTime, hasPostConflict || false, `${currentEvent.id}-post-${rowIndex}`);
+                  }
+                }
+              }
+              
               const instructorEvents = events.filter(event => 
                 event.instructor === instructor.name || 
                 (event.flightType === 'Dual' && event.student === instructor.name)
               ).sort((a, b) => a.startTime - b.startTime);
               
-              return instructorEvents.map(event => {
+              const eventTiles = instructorEvents.map(event => {
                 const isDraggedTile = !!(draggingState && draggingState.mainEventId === event.id);
                 const isStationaryConflictTile = event.id === realtimeConflict?.conflictingEventId;
                 const isConflicting =
@@ -529,6 +539,8 @@ const InstructorScheduleView: React.FC<InstructorScheduleViewProps> = ({ date, o
                   />
                 );
               });
+              
+              return [rowHighlight, ...barsForThisRow, ...eventTiles];
             })}
         </div>
       </div>

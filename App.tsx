@@ -5588,7 +5588,17 @@ updates.forEach(update => {
                             date={date}
                             onDateChange={handleDateChange}
                             events={eventsForStaffTraineeSchedule}
-                            trainees={traineesData.map(t => t.fullName)}
+                            trainees={[...traineesData]
+                                .sort((a, b) => {
+                                    // First sort by course
+                                    if (a.course !== b.course) {
+                                        return a.course.localeCompare(b.course);
+                                    }
+                                    // Then sort alphabetically by name within the same course
+                                    return a.name.localeCompare(b.name);
+                                })
+                                .map(t => t.fullName)
+                            }
                             traineesData={traineesData}
                             onSelectEvent={handleOpenModal}
                             onUpdateEvent={handleScheduleUpdate}
@@ -5601,6 +5611,7 @@ updates.forEach(update => {
                             showValidation={showValidation}
                             unavailabilityConflicts={unavailabilityConflicts}
                             onSelectTrainee={handleSelectTraineeFromSchedule}
+                            courseColors={courseColors}
                        />;
             case 'NextDayInstructorSchedule':
                 return <NextDayInstructorScheduleView
@@ -5637,6 +5648,7 @@ updates.forEach(update => {
                     onSelectTrainee={handleSelectTraineeFromSchedule}
                     buildDfpDate={buildDfpDate}
                     onDateChange={handleBuildDateChange}
+                    courseColors={courseColors}
                 />;
             case 'CourseRoster':
                 return <CourseRosterView 

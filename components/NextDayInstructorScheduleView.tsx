@@ -438,8 +438,21 @@ const NextDayInstructorScheduleView: React.FC<NextDayInstructorScheduleViewProps
             {renderDaylightLines()}
             {renderPrePostBars()}
             {instructors.flatMap((instructor, rowIndex) => {
+              // Render row highlight if this row is hovered
+              const rowHighlight = hoveredRowIndex === rowIndex ? (
+                <div
+                  key={`row-highlight-${rowIndex}`}
+                  className="absolute top-0 left-0 right-0 pointer-events-none z-10"
+                  style={{
+                    height: ROW_HEIGHT,
+                    top: rowIndex * ROW_HEIGHT,
+                    backgroundColor: 'rgba(255, 255, 255, 0.05)'
+                  }}
+                />
+              ) : null;
+
               const instructorEvents = events.filter(event => getPersonnel(event).includes(instructor.name)).sort((a, b) => a.startTime - b.startTime);
-              return instructorEvents.map(event => {
+              const eventTiles = instructorEvents.map(event => {
                 const isDraggedTile = !!(draggingState && draggingState.mainEventId === event.id);
                 const isStationaryConflictTile = event.id === realtimeConflict?.conflictingEventId;
                 const isConflicting = (showValidation && conflictingEventIds.has(event.id)) || isStationaryConflictTile || (isDraggedTile && !!realtimeConflict);
@@ -475,6 +488,8 @@ const NextDayInstructorScheduleView: React.FC<NextDayInstructorScheduleViewProps
                   />
                 );
               });
+              
+              return [rowHighlight, ...eventTiles];
             })}
         </div>
       </div>
