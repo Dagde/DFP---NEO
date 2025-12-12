@@ -4691,6 +4691,69 @@ const App: React.FC = () => {
         // Get current schedule before updating
         const currentScheduleForDate = publishedSchedules[date] || [];
         
+        // 🐍 DEBUG: Formation drag update logging
+        console.log('🐍 SCHEDULE UPDATE START');
+        console.log('🐍 Updates requested:', updates);
+        console.log('🐍 Current events:', currentScheduleForDate);
+        
+        // Check if this is a formation event update
+        const updatedEvent = currentScheduleForDate.find(e => e.id === updates[0].eventId);
+        if (updatedEvent?.formationId) {
+            console.log('🐍 FORMATION EVENT UPDATE DETECTED - Formation ID:', updatedEvent.formationId);
+            
+            // Find all formation events
+            const allFormationEvents = currentScheduleForDate.filter(e => e.formationId === updatedEvent.formationId);
+            console.log('🐍 Found formation events:', allFormationEvents.length);
+            console.log('🐍 Formation events:', allFormationEvents);
+            
+            // Find the index of the dragged event
+            const draggedEventIndex = allFormationEvents.findIndex(e => e.id === updates[0].eventId);
+            if (draggedEventIndex !== -1) {
+                console.log('🐍 Dragged event index in formation:', draggedEventIndex);
+                
+                // Calculate time offset for the dragged event
+                const timeOffset = (updates[0].newStartTime ?? updatedEvent.startTime) - allFormationEvents[draggedEventIndex].startTime;
+                console.log('🐍 Time offset for formation:', timeOffset, 'minutes');
+                
+                // Create updates for ALL formation events
+                const formationUpdates = allFormationEvents.map(event => ({
+                    eventId: event.id,
+                    newStartTime: event.startTime + timeOffset,
+                    newResourceId: updates[0].newResourceId ?? event.resourceId
+                }));
+                
+                console.log('🐍 Formation updates to apply:', formationUpdates);
+                
+                setPublishedSchedules((prev: Record<string, ScheduleEvent[]>) => {
+                    const scheduleForDate = prev[date] || [];
+                    const allUpdatesMap = new Map(formationUpdates.map(u => [u.eventId, u]));
+        
+                    const newScheduleForDate = scheduleForDate.map(event => {
+                        if (allUpdatesMap.has(event.id)) {
+                            const update = allUpdatesMap.get(event.id)!;
+                            return {
+                                ...event,
+                                startTime: update.newStartTime ?? event.startTime,
+                                resourceId: update.newResourceId ?? event.resourceId,
+                                // Preserve formation metadata
+                                formationId: event.formationId,
+                                formationIndex: event.formationIndex,
+                                formationAircraftCount: event.formationAircraftCount,
+                                formationType: event.formationType,
+                                formationMetadata: event.formationMetadata
+                            };
+                        }
+                        return event;
+                    });
+                    return { ...prev, [date]: newScheduleForDate };
+                });
+                
+                console.log('🐍 FORMATION UPDATE COMPLETE');
+                return;
+            }
+        }
+        
+        // Regular non-formation event update
         setPublishedSchedules((prev: Record<string, ScheduleEvent[]>) => {
             const scheduleForDate = prev[date] || [];
             const updatesMap = new Map(updates.map(u => [u.eventId, u]));
@@ -4747,6 +4810,64 @@ updates.forEach(update => {
         // Get current events before updating
         const currentEvents = nextDayBuildEvents;
         
+        // 🐍 DEBUG: Next Day Formation drag update logging
+        console.log('🐍 NEXT DAY SCHEDULE UPDATE START');
+        console.log('🐍 Updates requested:', updates);
+        
+        // Check if this is a formation event update
+        const updatedEvent = currentEvents.find(e => e.id === updates[0].eventId);
+        if (updatedEvent?.formationId) {
+            console.log('🐍 NEXT DAY FORMATION EVENT UPDATE DETECTED - Formation ID:', updatedEvent.formationId);
+            
+            // Find all formation events
+            const allFormationEvents = currentEvents.filter(e => e.formationId === updatedEvent.formationId);
+            console.log('🐍 Found next day formation events:', allFormationEvents.length);
+            
+            // Find the index of the dragged event
+            const draggedEventIndex = allFormationEvents.findIndex(e => e.id === updates[0].eventId);
+            if (draggedEventIndex !== -1) {
+                console.log('🐍 Next day dragged event index in formation:', draggedEventIndex);
+                
+                // Calculate time offset for the dragged event
+                const timeOffset = (updates[0].newStartTime ?? updatedEvent.startTime) - allFormationEvents[draggedEventIndex].startTime;
+                console.log('🐍 Time offset for next day formation:', timeOffset, 'minutes');
+                
+                // Create updates for ALL formation events
+                const formationUpdates = allFormationEvents.map(event => ({
+                    eventId: event.id,
+                    newStartTime: event.startTime + timeOffset,
+                    newResourceId: updates[0].newResourceId ?? event.resourceId
+                }));
+                
+                console.log('🐍 Next day formation updates to apply:', formationUpdates);
+                
+                setNextDayBuildEvents(prev => {
+                    const allUpdatesMap = new Map(formationUpdates.map(u => [u.eventId, u]));
+                    return prev.map(event => {
+                        if (allUpdatesMap.has(event.id)) {
+                            const update = allUpdatesMap.get(event.id)!;
+                            return {
+                                ...event,
+                                startTime: update.newStartTime ?? event.startTime,
+                                resourceId: update.newResourceId ?? event.resourceId,
+                                // Preserve formation metadata
+                                formationId: event.formationId,
+                                formationIndex: event.formationIndex,
+                                formationAircraftCount: event.formationAircraftCount,
+                                formationType: event.formationType,
+                                formationMetadata: event.formationMetadata
+                            };
+                        }
+                        return event;
+                    });
+                });
+                
+                console.log('🐍 NEXT DAY FORMATION UPDATE COMPLETE');
+                return;
+            }
+        }
+        
+        // Regular non-formation event update
         setNextDayBuildEvents(prev => {
             const updatesMap = new Map(updates.map(u => [u.eventId, u]));
             return prev.map(event => {
