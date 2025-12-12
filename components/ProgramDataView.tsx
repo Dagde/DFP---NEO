@@ -14,6 +14,7 @@ interface ProgramDataViewProps {
   scores: Map<string, Score[]>;
   syllabusDetails: SyllabusItemDetail[];
   traineeLMPs: Map<string, SyllabusItemDetail[]>;
+  courseColors: { [key: string]: string };
 }
 
 // Helper component for stat cards
@@ -98,7 +99,8 @@ const ProgramDataView: React.FC<ProgramDataViewProps> = ({
     onNavigateAndSelectPerson,
     scores,
     syllabusDetails,
-    traineeLMPs
+    traineeLMPs,
+    courseColors
 }) => {
     // State for availability filtering
     const [availabilityFilter, setAvailabilityFilter] = useState<string>('all');

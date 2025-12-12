@@ -299,6 +299,8 @@ interface DfpConfig {
   school: 'ESL' | 'PEA';
   dayStart: number;
   dayEnd: number;
+  ftdStart: number;
+  ftdEnd: number;
   allowNightFlying: boolean;
   commenceNightFlying: number;
   ceaseNightFlying: number;
@@ -895,6 +897,7 @@ function generateDfpInternal(
         instructors: originalInstructors, trainees, syllabus: syllabusDetails, scores, 
         coursePriorities, coursePercentages, availableAircraftCount, ftdCount, cptCount,
         courseColors, school, dayStart: flyingStartTime, dayEnd: flyingEndTime,
+        ftdStart: ftdStartTime, ftdEnd: ftdEndTime,
         allowNightFlying, commenceNightFlying, ceaseNightFlying, buildDate,
         highestPriorityEvents, programWithPrimaries, traineeLMPs, flightTurnaround,
         ftdTurnaround, cptTurnaround, preferredDutyPeriod, maxCrewDutyPeriod,
@@ -1910,8 +1913,8 @@ function generateDfpInternal(
         applyCoursePriority(filterOutBnfTrainees(nextEventLists.ftd)), 
         'ftd', 
         false, 
-        flyingStartTime, 
-        flyingEndTime, 
+        ftdStartTime, 
+        ftdEndTime, 
         null, 
         false
     );
@@ -1975,8 +1978,8 @@ function generateDfpInternal(
         applyCoursePriority(filterOutBnfTrainees(nextPlusOneLists.ftd)), 
         'ftd', 
         true, 
-        flyingStartTime, 
-        flyingEndTime, 
+        ftdStartTime, 
+        ftdEndTime, 
         'STBY', 
         false
     );
@@ -2328,7 +2331,7 @@ function generateDfpInternal(
     
     if (traineesNeedingStbyFtd.length > 0) {
         let currentStbyLine = 1;
-        let currentTime = flyingStartTime;
+        let currentTime = ftdStartTime;
         const minSpacing = ftdTurnaround;
         
         console.log(`FTD STBY: Scheduling ${traineesNeedingStbyFtd.length} events with ${minSpacing.toFixed(2)}hr spacing`);
@@ -2381,7 +2384,7 @@ function generateDfpInternal(
                     } else {
                         // Conflict on this line, move to next STBY line
                         currentStbyLine++;
-                        currentTime = flyingStartTime; // Reset time for new line
+                        currentTime = ftdStartTime; // Reset time for new line
                     }
                 } else {
                     // Reached end of flying window on this line, move to next STBY line
@@ -4396,6 +4399,8 @@ const App: React.FC = () => {
             school,
             dayStart: flyingStartTime,
             dayEnd: flyingEndTime,
+            ftdStart: ftdStartTime,
+            ftdEnd: ftdEndTime,
             allowNightFlying,
             commenceNightFlying,
             ceaseNightFlying,
@@ -5934,6 +5939,7 @@ updates.forEach(update => {
                             scores={scores}
                             syllabusDetails={syllabusDetails}
                             traineeLMPs={traineeLMPs}
+                            courseColors={courseColors}
                         />;
             case 'BuildAnalysis':
                 return <BuildAnalysisView
