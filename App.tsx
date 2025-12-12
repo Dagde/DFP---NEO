@@ -6518,8 +6518,7 @@ updates.forEach(update => {
             <div className="flex-1 flex flex-col overflow-hidden">
                 {activeView !== 'PostFlight' && <Header
                     onAddTile={() => {
-                        console.log('🚀 Add Tile button clicked!');
-                        alert('Add Tile clicked - debugging should appear in console');
+                        // Debug alert removed - Add Tile functionality working correctly
                         setIsAddingTile(true);
                         handleOpenModal(null, { type: 'flight' });
                     }}
@@ -6555,7 +6554,6 @@ updates.forEach(update => {
                     instructors={instructorsData.map(i => i.name)}
                     trainees={traineesData.map(t => t.fullName)}
                     syllabus={(() => {
-                        console.log('Syllabus selection - isAddingTile:', isAddingTile);
                         console.log('addTileSyllabusOptions length:', addTileSyllabusOptions.length);
                         console.log('syllabusForModal length:', syllabusForModal.length);
                         return isAddingTile ? addTileSyllabusOptions : syllabusForModal;
