@@ -4345,41 +4345,43 @@ const App: React.FC = () => {
         console.log('Pre-Build Step 1: Syncing SCT and Remedial requests...');
         syncPriorityEventsWithSctAndRemedial();
         
-        // SECOND STEP: Analyze Active DFP for the build date and preserve existing events
+        // SECOND STEP: Analyze Active DFP for the build date and preserve ALL existing events
         console.log(`Pre-Build Step 2: Checking Active DFP for ${buildDfpDate}...`);
         
         const existingEventsForDate = publishedSchedules[buildDfpDate] || [];
         
         if (existingEventsForDate.length > 0) {
             console.log(`Found ${existingEventsForDate.length} existing events in Active DFP for ${buildDfpDate}`);
-            console.log('Auto-adding these events to Highest Priority Events to preserve them...');
+            console.log('AUTOMATICALLY adding ALL these events to Highest Priority to preserve them...');
             
-            // Add existing events to Highest Priority Events if not already there
+            // CRITICAL: Add ALL existing events to Highest Priority Events
+            // This ensures they are preserved in the new build regardless of type
             const newHighestPriorityEvents = [...highestPriorityEvents];
             let addedCount = 0;
             
             existingEventsForDate.forEach(event => {
                 // Check if this event is already in highest priority
                 const alreadyExists = newHighestPriorityEvents.some(hpe => 
-                    hpe.id === event.id || 
-                    (hpe.instructor === event.instructor && 
-                     hpe.student === event.student && 
-                     hpe.flightNumber === event.flightNumber &&
-                     hpe.startTime === event.startTime)
+                    hpe.id === event.id
                 );
                 
                 if (!alreadyExists) {
-                    newHighestPriorityEvents.push(event);
+                    // CRITICAL: Mark event as time-fixed so it's preserved in the build
+                    const preservedEvent = {
+                        ...event,
+                        isTimeFixed: true  // This ensures the build algorithm includes it
+                    };
+                    newHighestPriorityEvents.push(preservedEvent);
                     addedCount++;
-                    console.log(`  ✓ Added: ${event.flightNumber} - ${event.student || 'N/A'} with ${event.instructor} at ${event.startTime.toFixed(2)}`);
+                    console.log(`  ✓ LOCKED: ${event.flightNumber} - ${event.student || event.pilot || 'N/A'} with ${event.instructor} at ${event.startTime.toFixed(2)}`);
                 }
             });
             
             if (addedCount > 0) {
                 setHighestPriorityEvents(newHighestPriorityEvents);
-                console.log(`✓ Pre-Build Analysis Complete: ${addedCount} events locked as highest priority`);
+                console.log(`✓ Pre-Build Complete: ${addedCount} events LOCKED as highest priority (MUST be included in build)`);
             } else {
-                console.log('✓ Pre-Build Analysis Complete: All existing events already in highest priority');
+                console.log('✓ Pre-Build Complete: All existing events already locked');
             }
         } else {
             console.log('Pre-Build Analysis: No existing events found in Active DFP for this date');
