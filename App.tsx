@@ -4390,6 +4390,10 @@ const App: React.FC = () => {
         
         console.log(`DEBUG Active DFP has ${existingEventsForDate.length} events for ${buildDfpDate}`);
         
+        // Declare these outside the if block so they're accessible later
+        let newHighestPriorityEvents = [...highestPriorityEvents];
+        let addedCount = 0;
+        
         if (existingEventsForDate.length > 0) {
             console.log('DEBUG Existing events details:');
             existingEventsForDate.forEach((event, index) => {
@@ -4397,11 +4401,6 @@ const App: React.FC = () => {
             });
             
             console.log('AUTOMATICALLY adding ALL these events to Highest Priority to preserve them...');
-            
-            // CRITICAL: Add ALL existing events to Highest Priority Events
-            // This ensures they are preserved in the new build regardless of type
-            const newHighestPriorityEvents = [...highestPriorityEvents];
-            let addedCount = 0;
             
             existingEventsForDate.forEach(event => {
                 // Check if this event is already in highest priority
@@ -4436,10 +4435,8 @@ const App: React.FC = () => {
         
         console.log('DEBUG ===== PRE-BUILD ANALYSIS END =====');
         
-        // Store the final preserved events list to pass to build algorithm
-        const finalPreservedEvents = existingEventsForDate.length > 0 && addedCount > 0 
-            ? newHighestPriorityEvents 
-            : highestPriorityEvents;
+        // Use the updated list (which includes any newly added events from Active DFP)
+        const finalPreservedEvents = newHighestPriorityEvents;
         
         console.log(`DEBUG Final preserved events count: ${finalPreservedEvents.length}`);
         
