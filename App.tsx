@@ -4436,6 +4436,13 @@ const App: React.FC = () => {
         
         console.log('DEBUG ===== PRE-BUILD ANALYSIS END =====');
         
+        // Store the final preserved events list to pass to build algorithm
+        const finalPreservedEvents = existingEventsForDate.length > 0 && addedCount > 0 
+            ? newHighestPriorityEvents 
+            : highestPriorityEvents;
+        
+        console.log(`DEBUG Final preserved events count: ${finalPreservedEvents.length}`);
+        
         // Now proceed with normal build process
         const activeTrainees = traineesData.filter(t => !t.isPaused && !isPersonStaticallyUnavailable(t, flyingStartTime, ceaseNightFlying, buildDfpDate, 'flight'));
         let bnfTraineeCount = 0;
@@ -4452,7 +4459,8 @@ const App: React.FC = () => {
 
         setTimeout(() => {
             setShowNightFlyingInfo(false);
-            runBuildAlgorithm();
+            // CRITICAL: Pass the preserved events directly to avoid state timing issues
+            runBuildAlgorithm(finalPreservedEvents);
         }, 3000);
     };
 
@@ -4477,9 +4485,14 @@ const App: React.FC = () => {
         startBuildProcess();
     };
 
-    const runBuildAlgorithm = () => {
+    const runBuildAlgorithm = (preservedEvents?: ScheduleEvent[]) => {
         setIsBuildingDfp(true);
         setNextDayBuildEvents([]); // Clear previous build
+        
+        // Use preserved events if provided, otherwise use state
+        const eventsToUse = preservedEvents || highestPriorityEvents;
+        
+        console.log(`DEBUG runBuildAlgorithm called with ${eventsToUse.length} highest priority events`);
         
         const config: DfpConfig = {
             instructors: instructorsData,
@@ -4501,7 +4514,7 @@ const App: React.FC = () => {
             commenceNightFlying,
             ceaseNightFlying,
             buildDate: buildDfpDate,
-            highestPriorityEvents,
+            highestPriorityEvents: eventsToUse,
             programWithPrimaries,
             traineeLMPs,
             flightTurnaround,
