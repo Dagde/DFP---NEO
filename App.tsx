@@ -4341,8 +4341,12 @@ const App: React.FC = () => {
     };
     
     const startBuildProcess = () => {
-        // CRITICAL FIRST STEP: Analyze Active DFP for the build date and preserve existing events
-        console.log(`Pre-Build Analysis: Checking Active DFP for ${buildDfpDate}...`);
+        // CRITICAL FIRST STEP: Sync SCT and Remedial requests to Highest Priority
+        console.log('Pre-Build Step 1: Syncing SCT and Remedial requests...');
+        syncPriorityEventsWithSctAndRemedial();
+        
+        // SECOND STEP: Analyze Active DFP for the build date and preserve existing events
+        console.log(`Pre-Build Step 2: Checking Active DFP for ${buildDfpDate}...`);
         
         const existingEventsForDate = publishedSchedules[buildDfpDate] || [];
         
@@ -4455,9 +4459,9 @@ const App: React.FC = () => {
             preferredDutyPeriod,
             maxCrewDutyPeriod,
             eventLimits,
-            sctFtds: [], // Pass empty arrays for now
-            sctFlights: [],
-            remedialRequests: [],
+            sctFtds: sctFtds,
+            sctFlights: sctFlights,
+            remedialRequests: remedialRequests,
         };
 
         setTimeout(() => {
