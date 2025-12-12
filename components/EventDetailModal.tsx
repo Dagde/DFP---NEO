@@ -221,10 +221,12 @@ export const EventDetailModal: React.FC<EventDetailModalProps> = ({ event, onClo
     useEffect(() => {
         const isFormation = flightNumber === 'SCT FORM';
         const newSize = isFormation ? aircraftCount : 1;
+        console.log('👥 Crew size check:', { isFormation, aircraftCount, newSize, currentCrewLength: crew.length });
         if (crew.length !== newSize) {
              const newCrew = Array.from({ length: newSize }, (_, i) => {
                 return crew[i] || { flightType: 'Dual' as 'Dual' | 'Solo', instructor: '', student: '', pilot: '', group: '', groupTraineeIds: [] };
             });
+            console.log('👥 Setting new crew array with', newCrew.length, 'members');
             setCrew(newCrew);
         }
     }, [aircraftCount, flightNumber, crew]);
@@ -324,6 +326,8 @@ export const EventDetailModal: React.FC<EventDetailModalProps> = ({ event, onClo
     };
 
     const handleSave = () => {
+        console.log('💾 handleSave called with crew length:', crew.length);
+        console.log('💾 Formation info:', { formationType, flightNumber, hasFormationEvents: !!event.formationEvents });
         const eventsToSave: ScheduleEvent[] = crew.map((c, index) => {
             let eventColor = event.color;
             // ... (existing color logic)
@@ -368,6 +372,17 @@ export const EventDetailModal: React.FC<EventDetailModalProps> = ({ event, onClo
             };
         });
         
+        console.log('💾 Saving', eventsToSave.length, 'events');
+        eventsToSave.forEach((e, i) => {
+            console.log(`💾 Event ${i + 1}:`, {
+                id: e.id,
+                formationType: e.formationType,
+                formationPosition: e.formationPosition,
+                instructor: e.instructor,
+                student: e.student,
+                resourceId: e.resourceId
+            });
+        });
         onSave(eventsToSave);
     }
 
