@@ -89,7 +89,7 @@ export const EventDetailModal: React.FC<EventDetailModalProps> = ({ event, onClo
     // Debug: Log received syllabus
     console.log('🔥🔥🔥 EventDetailModal received syllabus:', syllabus.slice(0, 10), '... (total:', syllabus.length, ')');
     console.log('🔥🔥🔥 SCT FORM in syllabus:', syllabus.includes('SCT FORM'));
-    console.log('🔥🔥🔥 SCT Form in syllabus:', syllabus.includes('SCT Form'));
+    console.log('🔥🔥🔥 SCT FORM in syllabus only:', syllabus.includes('SCT Form'));
     console.log('🔥🔥🔥 All SCT-related options:', syllabus.filter(item => item.includes('SCT')));
     const [localHighlight, setLocalHighlight] = useState(highlightedField);
     const [showCancelConfirm, setShowCancelConfirm] = useState(false);
@@ -207,7 +207,7 @@ export const EventDetailModal: React.FC<EventDetailModalProps> = ({ event, onClo
     }, [locationType, school]);
 
     useEffect(() => {
-        const isFormation = flightNumber === 'SCT FORM' || flightNumber === 'SCT Form';
+        const isFormation = flightNumber === 'SCT FORM';
         console.log('Formation check:', { flightNumber, isFormation, aircraftCount, crewLength: crew.length });
         const newSize = isFormation ? aircraftCount : 1;
         if (crew.length !== newSize) {
@@ -304,12 +304,12 @@ export const EventDetailModal: React.FC<EventDetailModalProps> = ({ event, onClo
             setDuration(detail.duration);
         }
 
-        if ((newFlightNumber === 'SCT FORM' || newFlightNumber === 'SCT Form') && !formationType) {
+        if ((newFlightNumber === 'SCT FORM') && !formationType) {
             console.log('🔥 Setting formationType to:', formationTypes[0]);
             setFormationType(formationTypes[0]);
         }
         
-        if (newFlightNumber !== 'SCT FORM' && newFlightNumber !== 'SCT Form') {
+        if (newFlightNumber !== 'SCT FORM') {
             setAircraftCount(1);
         }
     };
@@ -348,8 +348,8 @@ export const EventDetailModal: React.FC<EventDetailModalProps> = ({ event, onClo
                 origin: locationType === 'Local' ? school : origin,
                 destination: locationType === 'Local' ? school : destination,
                 resourceId, // Updated with deployment assignment if selected
-                formationType: (flightNumber === 'SCT FORM' || flightNumber === 'SCT Form') ? formationType : undefined,
-                formationPosition: (flightNumber === 'SCT FORM' || flightNumber === 'SCT Form') ? index + 1 : undefined,
+                formationType: (flightNumber === 'SCT FORM') ? formationType : undefined,
+                formationPosition: (flightNumber === 'SCT FORM') ? index + 1 : undefined,
             };
         });
         
@@ -384,7 +384,7 @@ export const EventDetailModal: React.FC<EventDetailModalProps> = ({ event, onClo
     // ... (other handlers)
 
     const renderCrewFields = (crewMember: CrewMember, index: number) => {
-        const isSctForm = flightNumber === 'SCT FORM' || flightNumber === 'SCT Form';
+        const isSctForm = flightNumber === 'SCT FORM';
         const instructorList = oracleAvailableInstructors || instructors;
         const traineeList = oracleAvailableTrainees || trainees;
         
@@ -451,7 +451,7 @@ export const EventDetailModal: React.FC<EventDetailModalProps> = ({ event, onClo
                                                     <option value={oracleNextSyllabusEvent.id}>{oracleNextSyllabusEvent.id}</option>
                                                 ) : (
                                                     syllabus.map(item => {
-                                                        const isFormation = item === 'SCT FORM' || item === 'SCT Form';
+                                                        const isFormation = item === 'SCT FORM';
                                                         console.log('Syllabus item:', item, 'is SCT FORM:', isFormation);
                                                         return <option key={item} value={item}>{item}</option>;
                                                     })
@@ -467,7 +467,7 @@ export const EventDetailModal: React.FC<EventDetailModalProps> = ({ event, onClo
                                     
                                     {/* Formation Section */}
                                     {(() => {
-                                        const shouldShow = flightNumber === 'SCT FORM' || flightNumber === 'SCT Form';
+                                        const shouldShow = flightNumber === 'SCT FORM';
                                         console.log('🔥 Formation Section Debug:');
                                         console.log('  - flightNumber:', `"${flightNumber}"`);
                                         console.log('  - isAddingTile:', isAddingTile);
@@ -476,7 +476,7 @@ export const EventDetailModal: React.FC<EventDetailModalProps> = ({ event, onClo
                                         console.log('  - aircraftCount:', aircraftCount);
                                         console.log('  - syllabus length:', syllabus.length);
                                         console.log('  - SCT FORM in syllabus:', syllabus.includes('SCT FORM'));
-                                        console.log('  - SCT Form in syllabus:', syllabus.includes('SCT Form'));
+                                        // Removed SCT Form log - only SCT FORM is now supported
                                         
                                         if (shouldShow) {
                                             console.log('🔥 RENDERING FORMATION SECTION NOW!');

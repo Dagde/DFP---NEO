@@ -2774,7 +2774,7 @@ const App: React.FC = () => {
 
     // Settings state
     const [locations, setLocations] = useState<string[]>(['East Sale', 'Pearce', 'Williamtown', 'Amberley', 'Tindal', 'Edinburgh']);
-    const [sctEvents, setSctEvents] = useState<string[]>(['SCT GF', 'SCT IF', 'SCT Form', 'SCT Nav']);
+    const [sctEvents, setSctEvents] = useState<string[]>(['SCT GF', 'SCT IF', 'SCT FORM', 'SCT Nav']);
     const [units, setUnits] = useState<string[]>(['1FTS', 'CFS', '2FTS', '76SQN', '77SQN', '1SQN', '6SQN', '2SQN', '10SQN']);
     const [unitLocations, setUnitLocations] = useState<Record<string, string>>({
         '1FTS': 'East Sale', 'CFS': 'East Sale', '2FTS': 'Pearce', '76SQN': 'Williamtown', '77SQN': 'Williamtown',
@@ -4773,12 +4773,9 @@ updates.forEach(update => {
         console.log('Filtered items:', filtered);
         const options = filtered.map(item => item.id);
         
-        // Add SCT FORM options if not already present
+        // Add SCT FORM option if not already present
         if (!options.includes('SCT FORM')) {
             options.push('SCT FORM');
-        }
-        if (!options.includes('SCT Form')) {
-            options.push('SCT Form');
         }
         
         console.log('Final options with SCT FORM:', options);
