@@ -1002,18 +1002,37 @@ function generateDfpInternal(
     originalInstructors.forEach(i => eventCounts.set(i.name, { flightFtd: 0, ground: 0, cpt: 0, dutySup: 0, isStby: false }));
     trainees.forEach(t => eventCounts.set(t.fullName, { flightFtd: 0, ground: 0, cpt: 0, dutySup: 0, isStby: false }));
     
+    console.log('DEBUG ===== BUILD ALGORITHM: PROCESSING HIGHEST PRIORITY EVENTS =====');
+    console.log(`DEBUG Total Highest Priority Events to check: ${highestPriorityEvents.length}`);
+    console.log(`DEBUG Build Date: ${buildDate}`);
+    
+    let includedCount = 0;
+    let skippedCount = 0;
+    
     highestPriorityEvents.forEach(event => {
+        console.log(`DEBUG Checking event: ${event.flightNumber} - ${event.student || event.pilot || 'N/A'} (ID: ${event.id})`);
+        console.log(`  - event.date: ${event.date}, buildDate: ${buildDate}, match: ${event.date === buildDate}`);
+        console.log(`  - event.isTimeFixed: ${event.isTimeFixed}`);
+        
         if(event.date === buildDate && event.isTimeFixed) {
             const { date, ...eventWithoutDate } = event;
             generatedEvents.push(eventWithoutDate);
+            includedCount++;
+            console.log(`  ✓ DEBUG INCLUDED in build (ID: ${event.id})`);
             getPersonnel(event).forEach(personName => {
                 const counts = eventCounts.get(personName);
                 if (counts && (event.type === 'flight' || event.type === 'ftd')) { counts.flightFtd++; } 
                 else if (counts && event.type === 'ground') { counts.ground++; }
                 else if (counts && event.type === 'cpt') { counts.cpt++; }
             });
+        } else {
+            skippedCount++;
+            console.log(`  ✗ DEBUG SKIPPED - Reason: ${event.date !== buildDate ? 'date mismatch' : 'isTimeFixed is false'}`);
         }
     });
+    
+    console.log(`DEBUG Summary: ${includedCount} events INCLUDED, ${skippedCount} events SKIPPED`);
+    console.log('DEBUG ===== BUILD ALGORITHM: HIGHEST PRIORITY PROCESSING COMPLETE =====');
 
     setProgress({ message: 'Compiling "Next Event" lists...', percentage: 10 });
     
@@ -2528,6 +2547,24 @@ function generateDfpInternal(
     sortedEvents.slice(0, 20).forEach(e => {
         console.log(`  ${e.resourceId}: ${e.student} at ${e.startTime.toFixed(2)}`);
     });
+    
+    console.log('DEBUG ===== FINAL BUILD RESULTS =====');
+    console.log(`DEBUG Total events in final build: ${sortedEvents.length}`);
+    console.log('DEBUG Checking for originally locked events:');
+    
+    // Check if the events we locked are in the final result
+    highestPriorityEvents.forEach(hpe => {
+        if (hpe.date === buildDate && hpe.isTimeFixed) {
+            const found = sortedEvents.find(e => e.id === hpe.id);
+            if (found) {
+                console.log(`  ✓ FOUND: ${hpe.flightNumber} - ${hpe.student || hpe.pilot || 'N/A'} (ID: ${hpe.id})`);
+            } else {
+                console.log(`  ✗ MISSING: ${hpe.flightNumber} - ${hpe.student || hpe.pilot || 'N/A'} (ID: ${hpe.id}) - THIS SHOULD NOT HAPPEN!`);
+            }
+        }
+    });
+    
+    console.log('DEBUG ===== END FINAL BUILD RESULTS =====');
     
     setProgress({ message: 'Build complete!', percentage: 100 });
     return sortedEvents;
@@ -4342,6 +4379,7 @@ const App: React.FC = () => {
     
     const startBuildProcess = () => {
         // CRITICAL FIRST STEP: Sync SCT and Remedial requests to Highest Priority
+        console.log('DEBUG ===== PRE-BUILD ANALYSIS START =====');
         console.log('Pre-Build Step 1: Syncing SCT and Remedial requests...');
         syncPriorityEventsWithSctAndRemedial();
         
@@ -4350,8 +4388,14 @@ const App: React.FC = () => {
         
         const existingEventsForDate = publishedSchedules[buildDfpDate] || [];
         
+        console.log(`DEBUG Active DFP has ${existingEventsForDate.length} events for ${buildDfpDate}`);
+        
         if (existingEventsForDate.length > 0) {
-            console.log(`Found ${existingEventsForDate.length} existing events in Active DFP for ${buildDfpDate}`);
+            console.log('DEBUG Existing events details:');
+            existingEventsForDate.forEach((event, index) => {
+                console.log(`  ${index + 1}. ${event.flightNumber} - ${event.student || event.pilot || 'N/A'} with ${event.instructor} at ${event.startTime.toFixed(2)} (ID: ${event.id}, isTimeFixed: ${event.isTimeFixed})`);
+            });
+            
             console.log('AUTOMATICALLY adding ALL these events to Highest Priority to preserve them...');
             
             // CRITICAL: Add ALL existing events to Highest Priority Events
@@ -4373,19 +4417,24 @@ const App: React.FC = () => {
                     };
                     newHighestPriorityEvents.push(preservedEvent);
                     addedCount++;
-                    console.log(`  ✓ LOCKED: ${event.flightNumber} - ${event.student || event.pilot || 'N/A'} with ${event.instructor} at ${event.startTime.toFixed(2)}`);
+                    console.log(`  DEBUG LOCKED: ${event.flightNumber} - ${event.student || event.pilot || 'N/A'} with ${event.instructor} at ${event.startTime.toFixed(2)} (ID: ${event.id})`);
+                } else {
+                    console.log(`  DEBUG SKIP: ${event.flightNumber} already in highest priority (ID: ${event.id})`);
                 }
             });
             
             if (addedCount > 0) {
                 setHighestPriorityEvents(newHighestPriorityEvents);
-                console.log(`✓ Pre-Build Complete: ${addedCount} events LOCKED as highest priority (MUST be included in build)`);
+                console.log(`DEBUG Pre-Build Complete: ${addedCount} events LOCKED as highest priority (MUST be included in build)`);
+                console.log(`DEBUG Total Highest Priority Events: ${newHighestPriorityEvents.length}`);
             } else {
-                console.log('✓ Pre-Build Complete: All existing events already locked');
+                console.log('DEBUG Pre-Build Complete: All existing events already locked');
             }
         } else {
-            console.log('Pre-Build Analysis: No existing events found in Active DFP for this date');
+            console.log('DEBUG Pre-Build Analysis: No existing events found in Active DFP for this date');
         }
+        
+        console.log('DEBUG ===== PRE-BUILD ANALYSIS END =====');
         
         // Now proceed with normal build process
         const activeTrainees = traineesData.filter(t => !t.isPaused && !isPersonStaticallyUnavailable(t, flyingStartTime, ceaseNightFlying, buildDfpDate, 'flight'));
