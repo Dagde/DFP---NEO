@@ -39,6 +39,7 @@ interface EventDetailModalProps {
   publishedSchedules?: Record<string, ScheduleEvent[]>;
   nextDayBuildEvents?: ScheduleEvent[];
   activeView?: string;
+  isAddingTile?: boolean;
 }
 
 interface CrewMember {
@@ -63,7 +64,9 @@ const getEventTypeFromSyllabus = (syllabusId: string, syllabusDetails: SyllabusI
 };
 
 
-export const EventDetailModal: React.FC<EventDetailModalProps> = ({ event, onClose, onSave, onDeleteRequest, isEditingDefault = false, instructors, trainees, syllabus, syllabusDetails, highlightedField, school, traineesData, instructorsData, courseColors, onNavigateToHateSheet, onNavigateToSyllabus, onOpenPt051, onOpenAuth, onOpenPostFlight, isConflict, onNeoClick, oracleContextForModal, sctRequests = [], sctEvents = [], eventsForDate = [], onScoresCreated, publishedSchedules = {}, nextDayBuildEvents = [], activeView = '' }) => {
+export const EventDetailModal: React.FC<EventDetailModalProps> = ({ event, onClose, onSave, onDeleteRequest, isEditingDefault = false, instructors, trainees, syllabus, syllabusDetails, highlightedField, school, traineesData, instructorsData, courseColors, onNavigateToHateSheet, onNavigateToSyllabus, onOpenPt051, onOpenAuth, onOpenPostFlight, isConflict, onNeoClick, oracleContextForModal, sctRequests = [], sctEvents = [], eventsForDate = [], onScoresCreated, publishedSchedules = {}, nextDayBuildEvents = [], activeView = '', isAddingTile = false }) => {
+    
+    console.log('EventDetailModal opened - isAddingTile:', isAddingTile);
     const [isEditing, setIsEditing] = useState(isEditingDefault);
     const [localHighlight, setLocalHighlight] = useState(highlightedField);
     const [showCancelConfirm, setShowCancelConfirm] = useState(false);
@@ -118,21 +121,33 @@ export const EventDetailModal: React.FC<EventDetailModalProps> = ({ event, onClo
 
     // Filtered syllabus options based on event category
     const filteredSyllabusOptions = useMemo(() => {
+        let options: string[] = [];
+        
         if (eventCategory === 'sct') {
-            return sctEvents;
+            options = sctEvents;
         } else if (eventCategory === 'lmp_event' || eventCategory === 'lmp_currency') {
             // Filter for Master LMP events only
-            return syllabusDetails
+            options = syllabusDetails
                 .filter(item => item.lmpType === 'Master LMP' || !item.lmpType) // Include items without lmpType for backward compatibility
                 .map(item => item.id);
         } else if (eventCategory === 'staff_cat') {
             // Filter for Staff CAT LMP events only
-            return syllabusDetails
+            options = syllabusDetails
                 .filter(item => item.lmpType === 'Staff CAT')
                 .map(item => item.id);
+        } else {
+            options = dynamicSyllabusOptions;
         }
-        return dynamicSyllabusOptions;
-    }, [eventCategory, sctEvents, syllabusDetails, dynamicSyllabusOptions]);
+        
+        // Always ensure SCT FORM is available when adding a tile
+        if (isAddingTile && !options.includes('SCT FORM')) {
+            options = [...options, 'SCT FORM'];
+        }
+        
+        
+        
+        return options;
+    }, [eventCategory, sctEvents, syllabusDetails, dynamicSyllabusOptions, isAddingTile]);
 
     // Get staff-only instructors (exclude trainees) grouped by unit
     const staffInstructorsByUnit = useMemo(() => {
@@ -661,6 +676,7 @@ export const EventDetailModal: React.FC<EventDetailModalProps> = ({ event, onClo
             setDuration(detail.duration);
         }
 
+        console.log('Flight number changed to:', newFlightNumber);
         if (newFlightNumber === 'SCT FORM' && !formationType) {
             setFormationType(formationTypes[0]);
         }
@@ -1183,7 +1199,8 @@ const renderCrewFields = (crewMember: CrewMember, index: number) => {
                                                 <option value="" disabled>
                                                     {isOracleContext ? 'Select a crew member first' : 'Select an item'}
                                                 </option>
-                                                {filteredSyllabusOptions.map(item => <option key={item} value={item}>{item}</option>)}
+                                                {isAddingTile && <option value="SCT FORM">SCT FORM</option>}
+                                                {filteredSyllabusOptions.filter(item => item !== 'SCT FORM').map(item => <option key={item} value={item}>{item}</option>)}
                                             </select>
                                             {syllabusSelectionError && (
                                                 <div className="absolute -bottom-6 left-0 text-xs text-red-400 animate-fade-in">Select a crew member first.</div>
@@ -1315,7 +1332,7 @@ const renderCrewFields = (crewMember: CrewMember, index: number) => {
         
                                     {flightNumber === 'SCT FORM' && (
                                         <div className="p-3 bg-gray-900/50 rounded-lg space-y-4">
-                                            <h3 className="font-semibold text-gray-300">Formation</h3>
+                                            <h3 className="font-semibold text-gray-300">Formation Details</h3>
                                             <div className="grid grid-cols-2 gap-4">
                                                 <div>
                                                     <label className="block text-sm font-medium text-gray-400">Formation Type</label>

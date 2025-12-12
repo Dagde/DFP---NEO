@@ -4764,11 +4764,25 @@ updates.forEach(update => {
     }, [syllabusDetails]);
 
     const addTileSyllabusOptions = useMemo(() => {
-        return syllabusDetails.filter(item => 
+        console.log('addTileSyllabusOptions filtering syllabusDetails:', syllabusDetails);
+        const filtered = syllabusDetails.filter(item => 
             item.type === 'Flight' || 
             item.type === 'FTD' ||
             (item.type === 'Ground School' && item.code.includes('CPT'))
-        ).map(item => item.id);
+        );
+        console.log('Filtered items:', filtered);
+        const options = filtered.map(item => item.id);
+        
+        // Add SCT FORM options if not already present
+        if (!options.includes('SCT FORM')) {
+            options.push('SCT FORM');
+        }
+        if (!options.includes('SCT Form')) {
+            options.push('SCT Form');
+        }
+        
+        console.log('Final options with SCT FORM:', options);
+        return options;
     }, [syllabusDetails]);
     
     const handleAuthorise = (eventId: string, notes: string, role: 'autho' | 'captain', isVerbal: boolean) => {
@@ -6508,6 +6522,8 @@ updates.forEach(update => {
             <div className="flex-1 flex flex-col overflow-hidden">
                 {activeView !== 'PostFlight' && <Header
                     onAddTile={() => {
+                        console.log('🚀 Add Tile button clicked!');
+                        alert('Add Tile clicked - debugging should appear in console');
                         setIsAddingTile(true);
                         handleOpenModal(null, { type: 'flight' });
                     }}
@@ -6542,7 +6558,12 @@ updates.forEach(update => {
                     isEditingDefault={isEditingDefault}
                     instructors={instructorsData.map(i => i.name)}
                     trainees={traineesData.map(t => t.fullName)}
-                    syllabus={isAddingTile ? addTileSyllabusOptions : syllabusForModal}
+                    syllabus={(() => {
+                        console.log('Syllabus selection - isAddingTile:', isAddingTile);
+                        console.log('addTileSyllabusOptions length:', addTileSyllabusOptions.length);
+                        console.log('syllabusForModal length:', syllabusForModal.length);
+                        return isAddingTile ? addTileSyllabusOptions : syllabusForModal;
+                    })()}
                     syllabusDetails={syllabusDetails}
                     highlightedField={highlightedField}
                     school={school}
@@ -6594,6 +6615,7 @@ updates.forEach(update => {
                     publishedSchedules={publishedSchedules}
                     nextDayBuildEvents={nextDayBuildEvents}
                     activeView={activeView}
+                    isAddingTile={isAddingTile}
                 />
             )}
             

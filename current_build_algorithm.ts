@@ -1019,3 +1019,7 @@ const App: React.FC = () => {
         if (permissions.includes('Super Admin')) return 'Super Admin';
         if (permissions.includes('Admin')) return 'Admin';
         if (permissions.includes('Scheduler')) return 'Scheduler';
+        if (permissions.includes('Course Supervisor')) return 'Course Supervisor';
+        if (permissions.includes('Ops')) return 'Ops';
+        return 'Staff';
+    };

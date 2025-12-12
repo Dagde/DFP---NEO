@@ -30,6 +30,7 @@ interface EventDetailModalProps {
   publishedSchedules?: Record<string, ScheduleEvent[]>;
   nextDayBuildEvents?: ScheduleEvent[];
   activeView?: string;
+  isAddingTile?: boolean;
 }
 
 interface CrewMember {
@@ -82,8 +83,14 @@ const formatDeploymentTitle = (deployment: ScheduleEvent): string => {
 };
 
 
-export const EventDetailModal: React.FC<EventDetailModalProps> = ({ event, onClose, onSave, onDeleteRequest, isEditingDefault = false, instructors, trainees, syllabus, syllabusDetails, highlightedField, school, traineesData, courseColors, onNavigateToHateSheet, onNavigateToSyllabus, onOpenPt051, onOpenAuth, onOpenPostFlight, isConflict, onNeoClick, oracleAvailableInstructors, oracleAvailableTrainees, oracleNextSyllabusEvent, publishedSchedules = {}, nextDayBuildEvents = [], activeView = '' }) => {
+export const EventDetailModal: React.FC<EventDetailModalProps> = ({ event, onClose, onSave, onDeleteRequest, isEditingDefault = false, instructors, trainees, syllabus, syllabusDetails, highlightedField, school, traineesData, courseColors, onNavigateToHateSheet, onNavigateToSyllabus, onOpenPt051, onOpenAuth, onOpenPostFlight, isConflict, onNeoClick, oracleAvailableInstructors, oracleAvailableTrainees, oracleNextSyllabusEvent, publishedSchedules = {}, nextDayBuildEvents = [], activeView = '', isAddingTile = false }) => {
     const [isEditing, setIsEditing] = useState(isEditingDefault);
+    
+    // Debug: Log received syllabus
+    console.log('🔥🔥🔥 EventDetailModal received syllabus:', syllabus.slice(0, 10), '... (total:', syllabus.length, ')');
+    console.log('🔥🔥🔥 SCT FORM in syllabus:', syllabus.includes('SCT FORM'));
+    console.log('🔥🔥🔥 SCT Form in syllabus:', syllabus.includes('SCT Form'));
+    console.log('🔥🔥🔥 All SCT-related options:', syllabus.filter(item => item.includes('SCT')));
     const [localHighlight, setLocalHighlight] = useState(highlightedField);
     const [showCancelConfirm, setShowCancelConfirm] = useState(false);
 
@@ -92,7 +99,7 @@ export const EventDetailModal: React.FC<EventDetailModalProps> = ({ event, onClo
     const [eventType, setEventType] = useState(event.type);
     const [startTime, setStartTime] = useState(event.startTime);
     const [area, setArea] = useState(event.area || 'A');
-    const [aircraftCount, setAircraftCount] = useState(1);
+    const [aircraftCount, setAircraftCount] = useState(event.aircraftCount || 1);
     const [crew, setCrew] = useState<CrewMember[]>([{
         flightType: event.flightType,
         instructor: event.instructor || '',
@@ -157,7 +164,7 @@ export const EventDetailModal: React.FC<EventDetailModalProps> = ({ event, onClo
         setLocationType(event.locationType || 'Local');
         setOrigin(event.origin || school);
         setDestination(event.destination || school);
-        setFormationType(event.formationType || formationTypes[0]);
+        setFormationType(event.formationType || '');
     }, [event, isEditingDefault, highlightedField, school]);
     
     // Helper function to get current deployments
@@ -200,7 +207,8 @@ export const EventDetailModal: React.FC<EventDetailModalProps> = ({ event, onClo
     }, [locationType, school]);
 
     useEffect(() => {
-        const isFormation = flightNumber === 'SCT FORM';
+        const isFormation = flightNumber === 'SCT FORM' || flightNumber === 'SCT Form';
+        console.log('Formation check:', { flightNumber, isFormation, aircraftCount, crewLength: crew.length });
         const newSize = isFormation ? aircraftCount : 1;
         if (crew.length !== newSize) {
              const newCrew = Array.from({ length: newSize }, (_, i) => {
@@ -224,6 +232,19 @@ export const EventDetailModal: React.FC<EventDetailModalProps> = ({ event, onClo
             }
         }
     }, [crew[0]?.student, isOracleContext, oracleAvailableTrainees, oracleNextSyllabusEvent]);
+
+    // Add debugging at render start
+    console.log('🔥🔥🔥 EventDetailModal render start - flightNumber:', flightNumber, 'isAddingTile:', isAddingTile);
+    
+    // Add immediate visual confirmation that changes are loaded
+    if (typeof window !== 'undefined') {
+        const testDiv = document.createElement('div');
+        testDiv.id = 'formation-fix-loaded';
+        testDiv.style.cssText = 'position:fixed;top:10px;right:10px;background:red;color:white;padding:5px;z-index:99999;';
+        testDiv.textContent = 'FORMATION FIX LOADED v2';
+        document.body.appendChild(testDiv);
+        setTimeout(() => testDiv.remove(), 5000);
+    }
 
     // Close group flyout when clicking outside
     useEffect(() => {
@@ -275,6 +296,7 @@ export const EventDetailModal: React.FC<EventDetailModalProps> = ({ event, onClo
     const handleFlightNumberChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
         const newFlightNumber = e.target.value;
         const oldFlightNumber = flightNumber;
+        console.log('🔥🔥🔥 handleFlightNumberChange called:', { oldFlightNumber, newFlightNumber, isAddingTile });
         setFlightNumber(newFlightNumber);
 
         const detail = syllabusDetails.find(d => d.id === newFlightNumber);
@@ -282,11 +304,12 @@ export const EventDetailModal: React.FC<EventDetailModalProps> = ({ event, onClo
             setDuration(detail.duration);
         }
 
-        if (newFlightNumber === 'SCT FORM' && !formationType) {
+        if ((newFlightNumber === 'SCT FORM' || newFlightNumber === 'SCT Form') && !formationType) {
+            console.log('🔥 Setting formationType to:', formationTypes[0]);
             setFormationType(formationTypes[0]);
         }
         
-        if (newFlightNumber !== 'SCT FORM') {
+        if (newFlightNumber !== 'SCT FORM' && newFlightNumber !== 'SCT Form') {
             setAircraftCount(1);
         }
     };
@@ -325,8 +348,8 @@ export const EventDetailModal: React.FC<EventDetailModalProps> = ({ event, onClo
                 origin: locationType === 'Local' ? school : origin,
                 destination: locationType === 'Local' ? school : destination,
                 resourceId, // Updated with deployment assignment if selected
-                formationType: flightNumber === 'SCT FORM' ? formationType : undefined,
-                formationPosition: flightNumber === 'SCT FORM' ? index + 1 : undefined,
+                formationType: (flightNumber === 'SCT FORM' || flightNumber === 'SCT Form') ? formationType : undefined,
+                formationPosition: (flightNumber === 'SCT FORM' || flightNumber === 'SCT Form') ? index + 1 : undefined,
             };
         });
         
@@ -361,12 +384,18 @@ export const EventDetailModal: React.FC<EventDetailModalProps> = ({ event, onClo
     // ... (other handlers)
 
     const renderCrewFields = (crewMember: CrewMember, index: number) => {
-        // ... (existing logic)
+        const isSctForm = flightNumber === 'SCT FORM' || flightNumber === 'SCT Form';
         const instructorList = oracleAvailableInstructors || instructors;
         const traineeList = oracleAvailableTrainees || trainees;
+        
+        const formationCallsign = formationType && isSctForm 
+            ? `${formationType} ${index + 1}` 
+            : `Aircraft ${index + 1}`;
 
         return (
-            <div key={index}>
+            <div key={index} className={`space-y-4 ${crew.length > 1 ? 'p-3 bg-gray-700/50 rounded-lg' : ''}`}>
+                {crew.length > 1 && <h4 className="text-sm font-bold text-sky-400">{formationCallsign}</h4>}
+                
                 {/* ... existing fields ... */}
                 {crewMember.flightType === 'Dual' ? (
                     <>
@@ -421,7 +450,11 @@ export const EventDetailModal: React.FC<EventDetailModalProps> = ({ event, onClo
                                                 {isOracleContext && oracleNextSyllabusEvent ? (
                                                     <option value={oracleNextSyllabusEvent.id}>{oracleNextSyllabusEvent.id}</option>
                                                 ) : (
-                                                    syllabus.map(item => <option key={item} value={item}>{item}</option>)
+                                                    syllabus.map(item => {
+                                                        const isFormation = item === 'SCT FORM' || item === 'SCT Form';
+                                                        console.log('Syllabus item:', item, 'is SCT FORM:', isFormation);
+                                                        return <option key={item} value={item}>{item}</option>;
+                                                    })
                                                 )}
                                             </select>
                                             {syllabusSelectionError && (
@@ -431,6 +464,45 @@ export const EventDetailModal: React.FC<EventDetailModalProps> = ({ event, onClo
                                         {/* ... (other fields) ... */}
                                     </div>
                                     {/* ... (other editing fields) ... */}
+                                    
+                                    {/* Formation Section */}
+                                    {(() => {
+                                        const shouldShow = flightNumber === 'SCT FORM' || flightNumber === 'SCT Form';
+                                        console.log('🔥 Formation Section Debug:');
+                                        console.log('  - flightNumber:', `"${flightNumber}"`);
+                                        console.log('  - isAddingTile:', isAddingTile);
+                                        console.log('  - shouldShow:', shouldShow);
+                                        console.log('  - formationType:', formationType);
+                                        console.log('  - aircraftCount:', aircraftCount);
+                                        console.log('  - syllabus length:', syllabus.length);
+                                        console.log('  - SCT FORM in syllabus:', syllabus.includes('SCT FORM'));
+                                        console.log('  - SCT Form in syllabus:', syllabus.includes('SCT Form'));
+                                        
+                                        if (shouldShow) {
+                                            console.log('🔥 RENDERING FORMATION SECTION NOW!');
+                                        }
+                                        
+                                        return shouldShow && (
+                                            <div className="p-3 bg-gray-900/50 rounded-lg space-y-4" style={{border: '2px solid red', backgroundColor: 'rgba(255,0,0,0.1)'}}>
+                                                <h3 className="font-semibold text-gray-300">🔥 FORMATION SECTION VISIBLE</h3>
+                                                <div className="grid grid-cols-2 gap-4">
+                                                    <div>
+                                                        <label className="block text-sm font-medium text-gray-400">Formation Type</label>
+                                                        <select value={formationType} onChange={e => setFormationType(e.target.value)} className="mt-1 block w-full bg-gray-700 border border-gray-600 rounded-md shadow-sm py-2 px-3 text-white focus:outline-none focus:ring-sky-500 focus:border-sky-500 sm:text-sm">
+                                                            {formationTypes.map(type => <option key={type} value={type}>{type}</option>)}
+                                                        </select>
+                                                    </div>
+                                                    <div>
+                                                        <label className="block text-sm font-medium text-gray-400">Aircraft Count</label>
+                                                        <select value={aircraftCount} onChange={e => setAircraftCount(parseInt(e.target.value))} className="mt-1 block w-full bg-gray-700 border border-gray-600 rounded-md shadow-sm py-2 px-3 text-white focus:outline-none focus:ring-sky-500 focus:border-sky-500 sm:text-sm">
+                                                            {Array.from({length: 7}, (_, i) => i + 2).map(n => <option key={n} value={n}>{n}</option>)}
+                                                        </select>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        );
+                                    })()}
+                                    
                                     <div className="space-y-4">{crew.map(renderCrewFields)}</div>
                                     
                                     {/* Add to Deployment Section */}
