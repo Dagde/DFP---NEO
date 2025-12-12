@@ -3152,7 +3152,7 @@ const App: React.FC = () => {
         targetEvent: ScheduleEvent | Omit<ScheduleEvent, 'date'>,
         allEvents: (ScheduleEvent | Omit<ScheduleEvent, 'date'>)[],
         checkDate?: string
-    ): { hasConflict: boolean; conflictingEventId: string | null; conflictType: 'turnaround' | 'resource' | 'personnel' | null; conflictedPersonnel: string | null } => {
+    ): { hasConflict: boolean; conflictingEventId: string | null; conflictType: 'turnaround' | 'resource' | 'personnel' | 'day-night' | null; conflictedPersonnel: string | null } => {
         
         // Skip conflict detection for STBY and deployment events
         if (targetEvent.resourceId.startsWith('STBY') || 
@@ -3250,8 +3250,35 @@ const App: React.FC = () => {
             }
         }
 
+        // Check day/night separation - personnel should only be scheduled for day OR night, not both
+        const targetPersonnelForDayNight = getPersonnel(targetEvent);
+        const targetEventWithDateForDayNight = 'date' in targetEvent ? targetEvent : { ...targetEvent, date: checkDate || buildDfpDate };
+        const targetWindowForDayNight = getEventBookingWindow(targetEventWithDateForDayNight as ScheduleEvent, syllabusDetails);
+        const isTargetNight = targetWindowForDayNight.start >= commenceNightFlying && targetWindowForDayNight.start < ceaseNightFlying;
+
+        for (const event of validEvents) {
+            const eventPersonnel = getPersonnel(event);
+            const commonPersonnelForDayNight = targetPersonnelForDayNight.filter(p => eventPersonnel.includes(p));
+
+            if (commonPersonnelForDayNight.length > 0) {
+                const eventWithDateForDayNight = 'date' in event ? event : { ...event, date: checkDate || buildDfpDate };
+                const eventWindowForDayNight = getEventBookingWindow(eventWithDateForDayNight as ScheduleEvent, syllabusDetails);
+                const isEventNight = eventWindowForDayNight.start >= commenceNightFlying && eventWindowForDayNight.start < ceaseNightFlying;
+
+                // Conflict if one event is day and the other is night
+                if (isTargetNight !== isEventNight) {
+                    return { 
+                        hasConflict: true, 
+                        conflictingEventId: event.id, 
+                        conflictType: 'day-night',
+                        conflictedPersonnel: commonPersonnelForDayNight[0] 
+                    };
+                }
+            }
+        }
+
         return { hasConflict: false, conflictingEventId: null, conflictType: null, conflictedPersonnel: null };
-    }, [flightTurnaround, ftdTurnaround, cptTurnaround, syllabusDetails, buildDfpDate, checkTimeOverlap]);
+    }, [flightTurnaround, ftdTurnaround, cptTurnaround, syllabusDetails, buildDfpDate, checkTimeOverlap, commenceNightFlying, ceaseNightFlying]);
 
     /**
      * Calculate all conflicts for current day events (used when Validate is checked)
