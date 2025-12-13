@@ -1049,6 +1049,44 @@ function generateDfpInternal(
     
     console.log(`DEBUG Summary: ${includedCount} events INCLUDED, ${skippedCount} events SKIPPED`);
     console.log('DEBUG ===== BUILD ALGORITHM: HIGHEST PRIORITY PROCESSING COMPLETE =====');
+    
+    // CRITICAL FIX: Assign resources to highest priority events that don't have resourceId
+    console.log('DEBUG ===== ASSIGNING RESOURCES TO HIGHEST PRIORITY EVENTS =====');
+    generatedEvents.forEach((event) => {
+        if (!event.resourceId || event.resourceId === '') {
+            // Determine resource type based on event type
+            const resourcePrefix = event.type === 'flight' ? 'PC-21 ' : 
+                                 event.type === 'ftd' ? 'FTD ' : 
+                                 event.type === 'cpt' ? 'CPT ' : 'Ground ';
+            const resourceCount = event.type === 'flight' ? availableAircraftCount : 
+                                event.type === 'ftd' ? ftdCount : 
+                                event.type === 'cpt' ? cptCount : 6;
+            
+            // Find first available resource
+            let assignedResource: string | null = null;
+            for (let i = 1; i <= resourceCount; i++) {
+                const resourceId = `${resourcePrefix}${i}`;
+                const isOccupied = generatedEvents.some(e => 
+                    e.resourceId === resourceId && 
+                    e.id !== event.id &&
+                    e.startTime < (event.startTime + event.duration) && 
+                    (e.startTime + e.duration) > event.startTime
+                );
+                if (!isOccupied) {
+                    assignedResource = resourceId;
+                    break;
+                }
+            }
+            
+            if (assignedResource) {
+                event.resourceId = assignedResource;
+                console.log(`DEBUG Assigned ${assignedResource} to highest priority event: ${event.flightNumber} - ${event.student || event.pilot || 'N/A'}`);
+            } else {
+                console.warn(`DEBUG Could not find available resource for: ${event.flightNumber}`);
+            }
+        }
+    });
+    console.log('DEBUG ===== RESOURCE ASSIGNMENT COMPLETE =====');
 
     setProgress({ message: 'Compiling "Next Event" lists...', percentage: 10 });
     
@@ -4223,13 +4261,20 @@ const App: React.FC = () => {
                     }
                     
                     if (trainee && syllabusItem) {
+                        // CRITICAL FIX: Get allocated instructor from remedial package
+                        const allocatedInstructor = syllabusItem.resourcesHuman && syllabusItem.resourcesHuman.length > 0 
+                            ? syllabusItem.resourcesHuman[0] 
+                            : '';
+                        
+                        console.log(`📋 Allocated instructor for ${syllabusItem.code}: ${allocatedInstructor || 'None'}`);
+                        
                         const newEvent: ScheduleEvent = {
                             id: `remedial-${remedialReq.traineeId}-${remedialReq.eventCode}`,
                             date: buildDfpDate,
                             type: syllabusItem.type === 'FTD' ? 'ftd' : 
                                   syllabusItem.type === 'Ground School' ? 'ground' : 
                                   syllabusItem.type === 'Flight' ? 'flight' : 'flight',
-                            instructor: '', // Will be assigned during scheduling
+                            instructor: allocatedInstructor, // Use allocated instructor from remedial package
                             student: trainee.fullName,
                             flightNumber: syllabusItem.code,
                             duration: duration,
