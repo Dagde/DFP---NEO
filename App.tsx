@@ -3540,14 +3540,18 @@ const App: React.FC = () => {
     
             cleanedLmp.splice(insertionIndex + 1, 0, ...remedialPackageItems);
     
-            const subsequentEvent = cleanedLmp.find(item => item.prerequisites.includes(eventToRemediate.id));
+            // CRITICAL FIX: Update ALL subsequent events that depend on the failed event
+            // Previously only updated the first one, causing events beyond the first to be schedulable
+            // before completing the remedial package
+            const subsequentEvents = cleanedLmp.filter(item => item.prerequisites.includes(eventToRemediate.id));
             
-            if (subsequentEvent) {
+            subsequentEvents.forEach(subsequentEvent => {
                 const prereqIndex = subsequentEvent.prerequisites.indexOf(eventToRemediate.id);
                 if (prereqIndex !== -1) {
                     subsequentEvent.prerequisites[prereqIndex] = reFlyEvent.id;
+                    console.log(`✅ Updated prerequisite for ${subsequentEvent.code}: ${eventToRemediate.id} → ${reFlyEvent.id}`);
                 }
-            }
+            });
         
             newLMPs.set(trainee.fullName, cleanedLmp);
             return newLMPs;
