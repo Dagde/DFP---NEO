@@ -4160,7 +4160,7 @@ const App: React.FC = () => {
                 if (!existingEvent) {
                     const syllabusItem = syllabusDetails.find(s => s.id === remedialReq.eventCode || s.code === remedialReq.eventCode);
                     const trainee = traineesData.find(t => t.idNumber === remedialReq.traineeId);
-                    const duration = syllabus?.duration || 1.5;
+                    const duration = syllabusItem?.duration || 1.5;
                     
                     if (trainee && syllabusItem) {
                         const newEvent: ScheduleEvent = {
