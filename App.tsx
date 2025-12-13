@@ -4170,17 +4170,32 @@ const App: React.FC = () => {
         });
         
         // 2. Auto-add Force Schedule remedial events
+        console.log(`🔍 Checking ${remedialRequests.length} remedial requests for Force Schedule...`);
+        const forceScheduledRemedials = remedialRequests.filter(r => r.forceSchedule);
+        console.log(`📌 Found ${forceScheduledRemedials.length} Force Scheduled remedial events`);
+        
         remedialRequests.forEach(remedialReq => {
             if (remedialReq.forceSchedule) {
+                console.log(`🔎 Processing Force Schedule remedial: traineeId=${remedialReq.traineeId}, eventCode=${remedialReq.eventCode}`);
+                
                 const existingEvent = newPriorityEvents.find(e => 
                     e.flightNumber === remedialReq.eventCode && 
                     e.isRemedial
                 );
                 
-                if (!existingEvent) {
+                if (existingEvent) {
+                    console.log(`⚠️ Event already exists in priority list: ${remedialReq.eventCode}`);
+                } else if (!existingEvent) {
                     const syllabusItem = syllabusDetails.find(s => s.id === remedialReq.eventCode || s.code === remedialReq.eventCode);
                     const trainee = traineesData.find(t => t.idNumber === remedialReq.traineeId);
                     const duration = syllabusItem?.duration || 1.5;
+                    
+                    if (!syllabusItem) {
+                        console.error(`❌ Syllabus item not found for event code: ${remedialReq.eventCode}`);
+                    }
+                    if (!trainee) {
+                        console.error(`❌ Trainee not found for ID: ${remedialReq.traineeId}`);
+                    }
                     
                     if (trainee && syllabusItem) {
                         const newEvent: ScheduleEvent = {
@@ -6052,15 +6067,20 @@ updates.forEach(update => {
                             let newRequests;
                             if (existing) {
                                 // Toggle the forceSchedule property
+                                const newForceScheduleValue = !existing.forceSchedule;
+                                console.log(`🔄 Toggling Force Schedule for trainee ${traineeId}, event ${eventCode}: ${existing.forceSchedule} → ${newForceScheduleValue}`);
                                 newRequests = prev.map(r => 
                                     r.traineeId === traineeId && r.eventCode === eventCode 
-                                        ? { ...r, forceSchedule: !r.forceSchedule }
+                                        ? { ...r, forceSchedule: newForceScheduleValue }
                                         : r
                                 );
                             } else {
                                 // Create new request with forceSchedule set to true
+                                console.log(`✅ Creating new Force Schedule request for trainee ${traineeId}, event ${eventCode}`);
                                 newRequests = [...prev, { traineeId, eventCode, forceSchedule: true }];
                             }
+                            
+                            console.log(`📋 Updated remedialRequests:`, newRequests.filter(r => r.forceSchedule));
                             
                             // Trigger priority sync after a short delay to ensure state is updated
                             setTimeout(() => {
