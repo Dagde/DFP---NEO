@@ -42,17 +42,19 @@ RED > AMBER > GREEN
 
 ### Phase 3: Logic Details ✅
 
-**Consecutive Check Algorithm:**
+**Consecutive Score Check Algorithm:**
 1. Get all non-remedial Flight/FTD scores (sorted by date, newest first)
 2. Take the last two: `lastNonRemedialScore` and `secondLastNonRemedialScore`
-3. Get ALL non-remedial scores (all event types, sorted by date)
-4. Find the index of each Flight/FTD event in the full list
-5. If indices differ by exactly 1 → they are consecutive → AMBER
+3. Check if BOTH have score = 1
+4. If both scores are 1 → AMBER
 
 **Example Scenarios:**
-- Flight (non-remedial) → FTD (non-remedial) = AMBER on FTD
-- Flight (non-remedial) → Ground (non-remedial) → FTD (non-remedial) = GREEN (not consecutive)
-- Flight (non-remedial) → Flight (remedial) → FTD (non-remedial) = GREEN (remedial doesn't break sequence, but we only count non-remedial)
+- Last Flight score = 1, Second-last FTD score = 1 → **AMBER**
+- Last Flight score = 1, Second-last FTD score = 2 → **GREEN**
+- Last Flight score = 0 → **AMBER** (fail rule)
+- Last Flight score = 2, Second-last FTD score = 1 → **GREEN**
+
+**Note:** Only considers the last two non-remedial Flight/FTD events chronologically, regardless of other events in between.
 
 ### Files Modified
 - [x] components/CourseRosterView.tsx - Updated `getTraineeNameColorClass` function

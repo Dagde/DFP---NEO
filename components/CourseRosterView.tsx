@@ -189,29 +189,12 @@ const CourseRosterView: React.FC<CourseRosterViewProps> = ({
                 return 'text-amber-400 hover:text-amber-300';
             }
             
-            // Check if last non-remedial Flight/FTD was the second consecutive non-remedial Flight/FTD
+            // Check if last TWO non-remedial Flight/FTD events both have score of 1
             if (nonRemedialFlightFtdScores.length >= 2) {
                 const secondLastNonRemedialScore = nonRemedialFlightFtdScores[1];
                 
-                // Check if these two are consecutive (no other non-remedial events between them)
-                // Get all non-remedial scores (all types) between these two dates
-                const allNonRemedialScores = traineeScores
-                    .filter(score => {
-                        const syllabusItem = syllabusDetails.find(item => item.id === score.event);
-                        return syllabusItem && !syllabusItem.isRemedial;
-                    })
-                    .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-                
-                // Find indices of our two Flight/FTD events in the full non-remedial list
-                const lastIndex = allNonRemedialScores.findIndex(s => 
-                    s.event === lastNonRemedialScore.event && s.date === lastNonRemedialScore.date
-                );
-                const secondLastIndex = allNonRemedialScores.findIndex(s => 
-                    s.event === secondLastNonRemedialScore.event && s.date === secondLastNonRemedialScore.date
-                );
-                
-                // If they are consecutive (indices differ by 1), mark as AMBER
-                if (lastIndex !== -1 && secondLastIndex !== -1 && secondLastIndex === lastIndex + 1) {
+                // If both last two non-remedial Flight/FTD events have score = 1, mark as AMBER
+                if (lastNonRemedialScore.score === 1 && secondLastNonRemedialScore.score === 1) {
                     return 'text-amber-400 hover:text-amber-300';
                 }
             }
