@@ -1032,16 +1032,6 @@ function generateDfpInternal(
         
         if(event.date === buildDate && event.isTimeFixed) {
             const { date, ...eventWithoutDate } = event;
-            
-            // CRITICAL FIX: Assign resource to highest priority events that lack resourceId
-            // This ensures force-scheduled remedial events appear in all schedule views
-            if (!eventWithoutDate.resourceId || eventWithoutDate.resourceId === '') {
-                const eventWithDate: ScheduleEvent = { ...eventWithoutDate, date: buildDate };
-                const assignedResourceId = findAvailableResourceId(eventWithDate, generatedEvents.map(e => ({ ...e, date: buildDate })));
-                eventWithoutDate.resourceId = assignedResourceId;
-                console.log(`  → Assigned resource ${assignedResourceId} to highest priority event`);
-            }
-            
             generatedEvents.push(eventWithoutDate);
             includedCount++;
             console.log(`  ✓ DEBUG INCLUDED in build (ID: ${event.id})`);
