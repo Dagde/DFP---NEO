@@ -469,7 +469,18 @@ const computeNextEventsForTrainee = (
     buildDate?: string // NEW: Optional for ELCE
 ): { next: SyllabusItemDetail | null, plusOne: SyllabusItemDetail | null } => {
     // Check individual LMP first, then fallback to master syllabus
+    const hasIndividualLMP = traineeLMPs.has(trainee.fullName);
     const individualLMP = traineeLMPs.get(trainee.fullName) || masterSyllabus;
+    
+    // Debug logging for remedial tracking
+    if (hasIndividualLMP) {
+        const remedialEvents = individualLMP.filter(item => item.isRemedial);
+        if (remedialEvents.length > 0) {
+            console.log(`🔍 [${trainee.fullName}] Has Individual LMP with ${remedialEvents.length} remedial events`);
+        }
+    } else {
+        console.log(`⚠️ [${trainee.fullName}] Using Master LMP (no Individual LMP found)`);
+    }
 
     if (!individualLMP || individualLMP.length === 0) {
         return { next: null, plusOne: null };
@@ -501,6 +512,11 @@ const computeNextEventsForTrainee = (
         if (prereqsMet) {
             nextEvt = item;
             nextEventIndex = i;
+            
+            // Debug logging for remedial events
+            if (item.isRemedial) {
+                console.log(`✅ [${trainee.fullName}] Next event is REMEDIAL: ${item.code}`);
+            }
             break;
         }
     }
