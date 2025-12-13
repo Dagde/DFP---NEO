@@ -320,7 +320,10 @@ export const PrioritiesView: React.FC<PrioritiesViewProps> = ({
       return item?.isRemedial || event.flightNumber.includes('REM') || event.flightNumber.endsWith('RF') || event.isRemedial;
   };
 
-  const standardPriorityEvents = highestPriorityEvents.filter(e => !isRemedialEvent(e));
+  // CRITICAL FIX: Don't filter out force-scheduled remedial events
+  // They should appear in Highest Priority Events list just like SCT events
+  // Only filter out remedial events that are NOT in the highestPriorityEvents list
+  const standardPriorityEvents = highestPriorityEvents;
   
   // Calculate incomplete remedials for display
   const incompleteRemedials = useMemo(() => {
