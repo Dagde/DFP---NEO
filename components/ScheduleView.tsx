@@ -134,6 +134,9 @@ const ScheduleView: React.FC<ScheduleViewProps> = ({
     // Multi-select State
     const selectionStartPoint = useRef<{ x: number, y: number } | null>(null);
     const [selectionRect, setSelectionRect] = useState<{ x: number, y: number, width: number, height: number } | null>(null);
+    
+    // Validate mode overlay state
+    const [validateOverlayTime, setValidateOverlayTime] = useState<number | null>(null);
 
     useEffect(() => {
         const timerId = setInterval(() => setCurrentTime(new Date()), 1000);
@@ -323,6 +326,30 @@ const ScheduleView: React.FC<ScheduleViewProps> = ({
         const gridRect = scheduleGridRef.current.getBoundingClientRect();
         const xInGrid = e.clientX - gridRect.left;
         const yInGrid = e.clientY - gridRect.top;
+        
+        // Update validate overlay position when validate mode is ON
+        if (showValidation) {
+            const mouseTimeInHours = (xInGrid / (PIXELS_PER_HOUR * zoomLevel)) + START_HOUR;
+            setValidateOverlayTime(mouseTimeInHours);
+            
+            // Auto-scroll when overlay gets near edges
+            if (scrollContainerRef.current) {
+                const scrollContainer = scrollContainerRef.current;
+                const scrollThreshold = 100; // pixels from edge to trigger scroll
+                const scrollSpeed = 10; // pixels to scroll per frame
+                
+                // Check if near left edge
+                if (xInGrid < scrollThreshold && scrollContainer.scrollLeft > 0) {
+                    scrollContainer.scrollLeft -= scrollSpeed;
+                }
+                
+                // Check if near right edge
+                const containerWidth = scrollContainer.clientWidth;
+                if (xInGrid > containerWidth - scrollThreshold) {
+                    scrollContainer.scrollLeft += scrollSpeed;
+                }
+            }
+        }
 
         if (isOracleMode && oraclePreviewEvent) {
             console.log('Early return: Oracle mode with preview event');
@@ -495,6 +522,9 @@ const ScheduleView: React.FC<ScheduleViewProps> = ({
         setRealtimeConflict(null);
         setRealtimeResourceConflictId(null);
         setDraggedCptConflict(null);
+        
+        // Clear validate overlay when mouse leaves
+        setValidateOverlayTime(null);
 
         // Finalize marquee selection
         if (selectionStartPoint.current && isMultiSelectMode) {
@@ -671,6 +701,67 @@ const ScheduleView: React.FC<ScheduleViewProps> = ({
         );
     };
 
+    // Render validate mode overlay
+    const renderValidateOverlay = () => {
+        if (!showValidation || validateOverlayTime === null) return null;
+        
+        // Calculate 1-hour window (30 minutes before and after mouse time)
+        const windowStart = validateOverlayTime - 0.5;
+        const windowEnd = validateOverlayTime + 0.5;
+        
+        // Count flights starting in this window
+        const flightCount = events.filter(event => {
+            // Only count flight events (not FTD, CPT, Ground, Duty Sup, etc.)
+            if (event.type !== 'flight') return false;
+            
+            // Check if start time falls within the window
+            return event.startTime >= windowStart && event.startTime < windowEnd;
+        }).length;
+        
+        // Calculate pixel positions
+        const leftX = (windowStart - START_HOUR) * PIXELS_PER_HOUR * zoomLevel;
+        const rightX = (windowEnd - START_HOUR) * PIXELS_PER_HOUR * zoomLevel;
+        const width = rightX - leftX;
+        
+        return (
+            <>
+                {/* Translucent overlay area */}
+                <div
+                    className="absolute top-0 h-full bg-white/10 pointer-events-none z-[25]"
+                    style={{
+                        left: `${leftX}px`,
+                        width: `${width}px`
+                    }}
+                />
+                
+                {/* Left vertical line */}
+                <div
+                    className="absolute top-0 h-full w-0.5 bg-white/40 pointer-events-none z-[26]"
+                    style={{ left: `${leftX}px` }}
+                />
+                
+                {/* Right vertical line */}
+                <div
+                    className="absolute top-0 h-full w-0.5 bg-white/40 pointer-events-none z-[26]"
+                    style={{ left: `${rightX}px` }}
+                />
+                
+                {/* Floating label at top */}
+                <div
+                    className="absolute top-2 bg-gray-800/95 border border-white/30 rounded px-3 py-1.5 shadow-lg pointer-events-none z-[27]"
+                    style={{
+                        left: `${leftX + width / 2}px`,
+                        transform: 'translateX(-50%)'
+                    }}
+                >
+                    <div className="text-white text-xs font-semibold whitespace-nowrap">
+                        Flights starting in this hour: <span className="text-sky-400">{flightCount}</span>
+                    </div>
+                </div>
+            </>
+        );
+    };
+
     // Render loop for events
     const renderEvents = () => {
         return resources.flatMap((resource, rowIndex) => {
@@ -801,6 +892,7 @@ const ScheduleView: React.FC<ScheduleViewProps> = ({
                     {renderDaylightLines()}
                     {renderCategorySeparators()}
                     {renderCurrentTimeIndicator()}
+                    {renderValidateOverlay()}
                     {renderEvents()}
                     
                     {isOracleMode && oraclePreviewEvent && (
