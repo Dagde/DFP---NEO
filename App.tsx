@@ -1032,6 +1032,16 @@ function generateDfpInternal(
         
         if(event.date === buildDate && event.isTimeFixed) {
             const { date, ...eventWithoutDate } = event;
+            
+            // CRITICAL FIX: Assign resource to highest priority events that lack resourceId
+            // This ensures force-scheduled remedial events appear in all schedule views
+            if (!eventWithoutDate.resourceId || eventWithoutDate.resourceId === '') {
+                const eventWithDate: ScheduleEvent = { ...eventWithoutDate, date: buildDate };
+                const assignedResourceId = findAvailableResourceId(eventWithDate, generatedEvents.map(e => ({ ...e, date: buildDate })));
+                eventWithoutDate.resourceId = assignedResourceId;
+                console.log(`  → Assigned resource ${assignedResourceId} to highest priority event`);
+            }
+            
             generatedEvents.push(eventWithoutDate);
             includedCount++;
             console.log(`  ✓ DEBUG INCLUDED in build (ID: ${event.id})`);
@@ -1049,21 +1059,6 @@ function generateDfpInternal(
     
     console.log(`DEBUG Summary: ${includedCount} events INCLUDED, ${skippedCount} events SKIPPED`);
     console.log('DEBUG ===== BUILD ALGORITHM: HIGHEST PRIORITY PROCESSING COMPLETE =====');
-    
-    // CRITICAL FIX: Assign resources to highest priority events that don't have resourceId
-    // This ensures force-scheduled remedial events appear in all schedule views
-    console.log('DEBUG ===== ASSIGNING RESOURCES TO HIGHEST PRIORITY EVENTS =====');
-    generatedEvents.forEach((event, index) => {
-        // Only process events that came from highest priority list and lack resourceId
-        if (!event.resourceId || event.resourceId === '') {
-            // Create a temporary event with date for resource assignment
-            const eventWithDate: ScheduleEvent = { ...event, date: buildDate };
-            const assignedResourceId = findAvailableResourceId(eventWithDate, generatedEvents.map(e => ({ ...e, date: buildDate })));
-            event.resourceId = assignedResourceId;
-            console.log(`DEBUG Assigned resource ${assignedResourceId} to highest priority event: ${event.flightNumber} - ${event.student || event.pilot || 'N/A'}`);
-        }
-    });
-    console.log('DEBUG ===== RESOURCE ASSIGNMENT COMPLETE =====');
 
     setProgress({ message: 'Compiling "Next Event" lists...', percentage: 10 });
     
