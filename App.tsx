@@ -2974,8 +2974,12 @@ const App: React.FC = () => {
 
     // Sync priority events when remedial requests change
     useEffect(() => {
+        console.log('🔄 useEffect triggered - activeView:', activeView, 'remedialRequests count:', remedialRequests.filter(r => r.forceSchedule).length);
         if (activeView === 'Priorities' || activeView === 'ProgramData') {
+            console.log('✅ Active view matches, calling sync...');
             syncPriorityEventsWithSctAndRemedial();
+        } else {
+            console.log('⏸️ Not syncing - activeView is:', activeView);
         }
     }, [remedialRequests, activeView]);
 
@@ -4186,12 +4190,33 @@ const App: React.FC = () => {
                 if (existingEvent) {
                     console.log(`⚠️ Event already exists in priority list: ${remedialReq.eventCode}`);
                 } else if (!existingEvent) {
-                    const syllabusItem = syllabusDetails.find(s => s.id === remedialReq.eventCode || s.code === remedialReq.eventCode);
+                    // For remedial events, look in the trainee's Individual LMP first, then fallback to master syllabus
                     const trainee = traineesData.find(t => t.idNumber === remedialReq.traineeId);
+                    let syllabusItem = null;
+                    
+                    if (trainee) {
+                        // Look in Individual LMP first (where remedial events exist)
+                        const individualLMP = traineeLMPs.get(trainee.fullName);
+                        if (individualLMP) {
+                            syllabusItem = individualLMP.find(s => s.id === remedialReq.eventCode || s.code === remedialReq.eventCode);
+                            if (syllabusItem) {
+                                console.log(`✅ Found remedial event in Individual LMP: ${remedialReq.eventCode}`);
+                            }
+                        }
+                    }
+                    
+                    // Fallback to master syllabus if not found in Individual LMP
+                    if (!syllabusItem) {
+                        syllabusItem = syllabusDetails.find(s => s.id === remedialReq.eventCode || s.code === remedialReq.eventCode);
+                        if (syllabusItem) {
+                            console.log(`✅ Found event in master syllabus: ${remedialReq.eventCode}`);
+                        }
+                    }
+                    
                     const duration = syllabusItem?.duration || 1.5;
                     
                     if (!syllabusItem) {
-                        console.error(`❌ Syllabus item not found for event code: ${remedialReq.eventCode}`);
+                        console.error(`❌ Event not found in Individual LMP or master syllabus: ${remedialReq.eventCode}`);
                     }
                     if (!trainee) {
                         console.error(`❌ Trainee not found for ID: ${remedialReq.traineeId}`);
@@ -4788,7 +4813,7 @@ updates.forEach(update => {
         
 // Log the updates to audit trail
            updates.forEach(update => {
-               const event = currentEvents.find(e => e.id === update.eventId);
+               const event = nextDayBuildEvents.find(e => e.id === update.eventId);
                if (event) {
                       // Capture original values BEFORE they change
                       const originalStartTime = event.startTime;
@@ -6084,6 +6109,9 @@ updates.forEach(update => {
                             
                             // Trigger priority sync after a short delay to ensure state is updated
                             setTimeout(() => {
+                                // Force a sync with the latest state by triggering the useEffect
+                                // The useEffect will catch the updated remedialRequests state
+                                console.log('🔄 Manual sync triggered from setTimeout');
                                 syncPriorityEventsWithSctAndRemedial();
                             }, 100);
                             
