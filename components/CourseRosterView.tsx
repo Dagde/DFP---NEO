@@ -162,42 +162,62 @@ const CourseRosterView: React.FC<CourseRosterViewProps> = ({
     };
 
     const getTraineeNameColorClass = (trainee: Trainee): string => {
-        // 1. Red for suspended/NTSC
+        // RULE 1: RED for Paused/NTSC (highest priority - overrides all others)
         if (trainee.isPaused) {
             return 'text-red-400 hover:text-red-300';
         }
 
-        // 2. Yellow for last flight score of 0 or 1
+        // RULE 2: AMBER for recent non-remedial poor performance
         const traineeScores = scores.get(trainee.fullName) || [];
-        const lastFlightScore = traineeScores
+        
+        // Get all non-remedial Flight/FTD scores sorted by date (most recent first)
+        const nonRemedialFlightFtdScores = traineeScores
             .filter(score => {
                 const syllabusItem = syllabusDetails.find(item => item.id === score.event);
-                return syllabusItem?.type === 'Flight';
+                // Include only Flight or FTD events that are NOT remedial
+                return syllabusItem && 
+                       (syllabusItem.type === 'Flight' || syllabusItem.type === 'FTD') && 
+                       !syllabusItem.isRemedial;
             })
-            .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())[0];
+            .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
         
-        if (lastFlightScore && (lastFlightScore.score === 0 || lastFlightScore.score === 1)) {
-            return 'text-yellow-400 hover:text-yellow-300';
-        }
-
-        // 3. Amber for unavailable
-        const today = new Date().toISOString().split('T')[0];
-        const isUnavailableToday = (trainee.unavailability || []).some(period => 
-            today >= period.startDate && today < period.endDate
-        );
-        if (isUnavailableToday) {
-            return 'text-amber-400 hover:text-amber-300';
-        }
-
-        // 4. White for remedial package
-        const individualLMP = traineeLMPs.get(trainee.fullName);
-        const completedEventIds = new Set(traineeScores.map(s => s.event));
-
-        if (individualLMP && individualLMP.some(item => (item.isRemedial) && !completedEventIds.has(item.id))) {
-            return 'text-white hover:text-gray-200';
+        if (nonRemedialFlightFtdScores.length > 0) {
+            const lastNonRemedialScore = nonRemedialFlightFtdScores[0];
+            
+            // Check if last non-remedial Flight/FTD was a fail (score = 0)
+            if (lastNonRemedialScore.score === 0) {
+                return 'text-amber-400 hover:text-amber-300';
+            }
+            
+            // Check if last non-remedial Flight/FTD was the second consecutive non-remedial Flight/FTD
+            if (nonRemedialFlightFtdScores.length >= 2) {
+                const secondLastNonRemedialScore = nonRemedialFlightFtdScores[1];
+                
+                // Check if these two are consecutive (no other non-remedial events between them)
+                // Get all non-remedial scores (all types) between these two dates
+                const allNonRemedialScores = traineeScores
+                    .filter(score => {
+                        const syllabusItem = syllabusDetails.find(item => item.id === score.event);
+                        return syllabusItem && !syllabusItem.isRemedial;
+                    })
+                    .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+                
+                // Find indices of our two Flight/FTD events in the full non-remedial list
+                const lastIndex = allNonRemedialScores.findIndex(s => 
+                    s.event === lastNonRemedialScore.event && s.date === lastNonRemedialScore.date
+                );
+                const secondLastIndex = allNonRemedialScores.findIndex(s => 
+                    s.event === secondLastNonRemedialScore.event && s.date === secondLastNonRemedialScore.date
+                );
+                
+                // If they are consecutive (indices differ by 1), mark as AMBER
+                if (lastIndex !== -1 && secondLastIndex !== -1 && secondLastIndex === lastIndex + 1) {
+                    return 'text-amber-400 hover:text-amber-300';
+                }
+            }
         }
         
-        // 5. Green for everyone else
+        // RULE 3: GREEN for everyone else (default)
         return 'text-green-400 hover:text-green-300';
     };
 
