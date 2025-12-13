@@ -331,24 +331,6 @@ const ScheduleView: React.FC<ScheduleViewProps> = ({
         if (showValidation) {
             const mouseTimeInHours = (xInGrid / (PIXELS_PER_HOUR * zoomLevel)) + START_HOUR;
             setValidateOverlayTime(mouseTimeInHours);
-            
-            // Auto-scroll when overlay gets near edges
-            if (scrollContainerRef.current) {
-                const scrollContainer = scrollContainerRef.current;
-                const scrollThreshold = 100; // pixels from edge to trigger scroll
-                const scrollSpeed = 10; // pixels to scroll per frame
-                
-                // Check if near left edge
-                if (xInGrid < scrollThreshold && scrollContainer.scrollLeft > 0) {
-                    scrollContainer.scrollLeft -= scrollSpeed;
-                }
-                
-                // Check if near right edge
-                const containerWidth = scrollContainer.clientWidth;
-                if (xInGrid > containerWidth - scrollThreshold) {
-                    scrollContainer.scrollLeft += scrollSpeed;
-                }
-            }
         }
 
         if (isOracleMode && oraclePreviewEvent) {
